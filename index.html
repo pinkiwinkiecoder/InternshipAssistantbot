@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>StageLog Terminal</title>
+  <meta name="description" content="Dagelijks stagelogboek in een PowerShell-stijl terminal, met gratis AI.">
+  <meta name="theme-color" content="#070a12">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="StageLog">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="titlebar">
+      <div class="tabs">
+        <div class="tab active"><span class="tab-ico">❯_</span> StageLog <span class="tab-dim">— pwsh</span></div>
+        <div class="tab add">+</div>
+      </div>
+      <div class="win" aria-hidden="true"><span>─</span><span>□</span><span>✕</span></div>
+    </header>
+
+    <main id="output" aria-live="polite"></main>
+
+    <footer id="console">
+      <div id="promptbar"></div>
+      <div class="inputrow">
+        <span id="caret">❯</span>
+        <input id="cmd" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Commando">
+      </div>
+      <nav id="quickbar">
+        <button data-run="New-Log" class="qb-main">▶ New-Log</button>
+        <button data-run="Add-Task">+ Taak</button>
+        <button data-run="Add-Lesson">+ Leermoment</button>
+        <button data-run="Get-Log">Vandaag</button>
+        <button data-run="Get-Logs">Alle logs</button>
+        <button data-run="Export-Verslag">Export</button>
+        <button data-run="Get-Help">Help</button>
+        <button data-key="enter" class="qb-key">⏎</button>
+        <button data-key="cancel" class="qb-key qb-cancel">^C</button>
+      </nav>
+    </footer>
+  </div>
+
+  <div id="print-area"></div>
+  <input type="file" id="file" accept="application/json,.json" hidden>
+  <script src="app.js"></script>
+</body>
+</html>
