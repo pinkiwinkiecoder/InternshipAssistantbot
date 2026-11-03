@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="nl">
+<html lang="nl" data-theme="congo" data-fx="max">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>StageLog Terminal</title>
-  <meta name="description" content="Dagelijks stagelogboek in een PowerShell-stijl terminal, met gratis AI.">
-  <meta name="theme-color" content="#070a12">
+  <meta name="description" content="Dagelijks stagelogboek voor podiumtechnieken (licht), in een terminal-stijl met gratis AI.">
+  <meta name="theme-color" content="#05060d">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,13 +19,31 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- het "podium": bewegende spots, haze en een followspot -->
+  <div id="stage" aria-hidden="true">
+    <div class="truss"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="beam b1"></div>
+    <div class="beam b2"></div>
+    <div class="beam b3"></div>
+    <div class="beam b4"></div>
+    <div class="beam b5"></div>
+    <canvas id="haze"></canvas>
+    <div class="follow"></div>
+    <div class="crt"></div>
+  </div>
+
+  <div id="go" aria-hidden="true"><div class="go-txt">GO</div><div class="go-sub"></div></div>
+
   <div id="app">
     <header class="titlebar">
       <div class="tabs">
-        <div class="tab active"><span class="tab-ico">❯_</span> StageLog <span class="tab-dim">— pwsh</span></div>
-        <div class="tab add">+</div>
+        <div class="tab active"><span class="tab-ico">❯_</span> StageLog <span class="tab-dim">— licht.pwsh</span></div>
       </div>
-      <div class="win" aria-hidden="true"><span>─</span><span>□</span><span>✕</span></div>
+      <div class="console-hud" aria-hidden="true">
+        <span class="live"><i></i>LIVE</span>
+        <span class="dmx-label">DMX U1</span>
+        <span class="dmx"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      </div>
     </header>
 
     <main id="output" aria-live="polite"></main>
@@ -38,11 +56,14 @@
       </div>
       <nav id="quickbar">
         <button data-run="New-Log" class="qb-main">▶ New-Log</button>
-        <button data-run="Add-Task">+ Taak</button>
-        <button data-run="Add-Lesson">+ Leermoment</button>
+        <button data-run="Add-Taak">+ Taak</button>
+        <button data-run="Add-Fout">+ Fout</button>
+        <button data-run="Add-Geleerd">+ Geleerd</button>
+        <button data-run="Add-Morgen">+ Morgen</button>
         <button data-run="Get-Log">Vandaag</button>
         <button data-run="Get-Logs">Alle logs</button>
         <button data-run="Export-Verslag">Export</button>
+        <button data-run="Set-Theme">Gel 🎨</button>
         <button data-run="Get-Help">Help</button>
         <button data-key="enter" class="qb-key">⏎</button>
         <button data-key="cancel" class="qb-key qb-cancel">^C</button>

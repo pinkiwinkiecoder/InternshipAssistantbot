@@ -1,15 +1,19 @@
 # StageLog Terminal ❯_
 
-Een stagelogboek-app in PowerShell-stijl. Elke dag noteer je wat je gedaan hebt, welke fouten je maakte en wat je geleerd hebt. Een gratis AI vraagt door en maakt er een net logboek van.
+Een stagelogboek voor **podiumtechnieken (licht)** in een terminal-look met PowerShell-sfeer: bewegende spots, haze, een followspot, glitch-effecten en kleurthema's die naar lichtfilters (gels) heten. Je vult alles zelf in, stap voor stap. Een gratis AI kan doorvragen en je spelling en vaktermen nakijken, maar verzint niets.
 
-**Indeling van elke dag:**
+**Indeling van elke dag (10 stappen):**
 
 ```
 Datum
-Productief
- - taken
-Fouten / leermomenten
- - Probleem: … → Oplossing: … → Geleerd: …
+◎ Productie · ⌖ Locatie · ◷ Werkuren
+◉ Wie is er gekomen
+▤ Wat was er te doen (planning)
+⚒ Mijn taken                 (verplicht)
+◈ Materiaal & techniek
+⚠ Wat is er fout gelopen
+✦ Wat heb ik geleerd         (verplicht)
+➜ Meenemen naar morgen       (verschijnt de volgende dag automatisch)
 ```
 
 ## Waarom het 100% gratis is
@@ -26,13 +30,15 @@ Fouten / leermomenten
 | Commando | Wat het doet |
 |---|---|
 | `New-Log` | Log van vandaag schrijven (AI-interview) |
-| `Add-Task "…"` / `Add-Lesson "…"` | Snel iets toevoegen, ook tussendoor |
+| `Add-Taak` / `Add-Fout` / `Add-Geleerd` / `Add-Morgen` / `Add-Wie` | Snel iets toevoegen, ook tussendoor |
 | `Get-Log [gisteren\|3-11]` | Log bekijken |
 | `Get-Logs` | Overzicht van alle logs |
 | `Get-Summary [-Week] [-Days 30]` | AI-samenvatting voor je verslag |
 | `Export-Verslag -Format pdf\|word\|md` | Exporteren (`-Week 1`, `-From 1-11 -To 7-11`) |
 | `Backup-Logs` / `Restore-Logs` | Backup maken en terugzetten (ook om pc ↔ iPad over te zetten) |
-| `Set-Config` | Naam, stage-info en AI instellen |
+| `Set-Config` | Naam, opleiding, stageplek, mentor en AI instellen |
+| `Set-Theme [congo\|amber\|magenta\|peacock\|red\|uv]` | Kies een gel (kleurthema) |
+| `Set-Fx max\|low\|off` | Effecten instellen (low spaart batterij) |
 | `Get-Stats`, `Test-AI`, `cls`, `help` | Statistieken, AI-test, scherm leegmaken, hulp |
 
 ## Installeren
