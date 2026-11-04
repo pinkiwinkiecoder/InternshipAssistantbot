@@ -21,7 +21,7 @@ Sluit je de app halverwege? Je concept wordt na elke stap bewaard. Typ later gew
 
 ## Installeren (gratis)
 
-1. GitHub → deze repo → **Settings → Pages** → *Source: Deploy from a branch* → branch `master`, map `/ (root)` → **Save**.
+1. GitHub → deze repo → **Settings → Pages** → *Source: Deploy from a branch* → branch `claude/stagelog-terminal`, map `/ (root)` → **Save**.
 2. Na ± 1 minuut staat de app op `https://<jouw-gebruikersnaam>.github.io/InternshipAssistantbot/`.
 3. **iPad:** open die link in Safari → Delen → *Zet op beginscherm*.
 4. **PC:** open de link in Chrome of Edge → installeer-icoon in de adresbalk.
