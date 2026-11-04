@@ -309,3 +309,106 @@ a { color: var(--a1); }
 .row-link:hover { background: color-mix(in srgb, var(--a1) 8%, transparent); }
 #quickbar .qb-export { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, var(--line)); }
 #quickbar button[hidden] { display: none; }
+
+/* ═══════════════════════ v4: nog cooler ═══════════════════════ */
+
+/* neon-rand rond het hele venster */
+#app::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--a1) 35%, transparent), inset 0 0 60px color-mix(in srgb, var(--a3) 18%, transparent); }
+
+/* gobo's: bewegende "breakup"-patronen zoals een moving head */
+.gobo { position: absolute; width: 34vmax; height: 34vmax; left: 0; top: 0; margin: -17vmax 0 0 -17vmax; mix-blend-mode: screen; opacity: 0; transition: opacity 1.5s;
+  animation: goboPath1 34s ease-in-out infinite; }
+.gobo i { position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle, transparent 18%, color-mix(in srgb, var(--a4) 55%, transparent) 19% 21%, transparent 22% 30%, color-mix(in srgb, var(--a1) 45%, transparent) 31% 33%, transparent 34%),
+              repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--a1) 70%, transparent) 0 7deg, transparent 7deg 22deg);
+  -webkit-mask: radial-gradient(circle, #000 35%, transparent 68%); mask: radial-gradient(circle, #000 35%, transparent 68%);
+  filter: blur(1.5px); animation: goboSpin 22s linear infinite; }
+.gobo.g2 { width: 24vmax; height: 24vmax; margin: -12vmax 0 0 -12vmax; animation: goboPath2 41s ease-in-out infinite; }
+.gobo.g2 i { animation-direction: reverse; animation-duration: 15s; filter: blur(2px) hue-rotate(40deg); }
+#stage.on .gobo { opacity: .13; }
+@keyframes goboSpin { to { transform: rotate(360deg); } }
+@keyframes goboPath1 { 0% { transform: translate(15vw, 70vh); } 25% { transform: translate(70vw, 55vh); } 50% { transform: translate(85vw, 85vh); } 75% { transform: translate(35vw, 90vh); } 100% { transform: translate(15vw, 70vh); } }
+@keyframes goboPath2 { 0% { transform: translate(80vw, 30vh); } 33% { transform: translate(30vw, 45vh); } 66% { transform: translate(55vw, 75vh); } 100% { transform: translate(80vw, 30vh); } }
+[data-fx="low"] .gobo, [data-fx="off"] .gobo { display: none; }
+
+/* lampen springen flikkerend aan (zoals een ontlading) */
+#stage.on .beam { animation: sweep var(--d, 14s) ease-in-out var(--dl, 0s) infinite alternate, lampOn 1.1s linear var(--on, 0s) backwards; }
+.b1 { --on: .0s; } .b2 { --on: .25s; } .b3 { --on: .5s; } .b4 { --on: .15s; } .b5 { --on: .4s; }
+@keyframes lampOn { 0% { opacity: 0; } 12% { opacity: .55; } 20% { opacity: 0; } 34% { opacity: .4; } 44% { opacity: .05; } 70% { opacity: .3; } 100% { opacity: .2; } }
+
+/* GO: alle beams draaien naar het midden + strobe */
+#stage.focus .beam { animation: none !important; transform: rotate(var(--aim, 0deg)); transition: transform .28s cubic-bezier(.2, .9, .2, 1), opacity .1s; opacity: .6 !important; }
+@keyframes goflash { 0% { opacity: 0; background: rgba(255, 255, 255, 0); } 4% { opacity: 1; background: rgba(255, 255, 255, .5); } 8% { background: rgba(255, 255, 255, 0); }
+  12% { background: rgba(255, 255, 255, .35); } 16% { background: rgba(255, 255, 255, 0); } 20% { background: rgba(255, 255, 255, .2); } 26% { background: rgba(255, 255, 255, .03); }
+  75% { opacity: 1; } 100% { opacity: 0; background: transparent; } }
+
+/* logo: lichtvlek die over de letters schuift */
+.banner { background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, .95) 50%, transparent 58%), linear-gradient(90deg, var(--a1), var(--a2), var(--a3), var(--a4), var(--a1));
+  background-size: 250% 100%, 300% 100%; -webkit-background-clip: text; background-clip: text; animation: logoSweep 7s linear infinite; }
+@keyframes logoSweep { 0% { background-position: 220% 0, 0 0; } 45% { background-position: -120% 0, 150% 0; } 100% { background-position: -120% 0, 300% 0; } }
+.banner-wrap::before { content: ''; position: absolute; left: 10%; top: -30%; width: 60%; height: 160%; border-radius: 50%; z-index: -1;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--a3) 30%, transparent), transparent 65%); filter: blur(10px); animation: breathe 4s ease-in-out infinite; }
+
+/* opwarm-balk in de opstart */
+.warm { display: inline-block; width: 18ch; height: .7em; vertical-align: middle; background: var(--line); border-radius: 2px; overflow: hidden; margin: 0 .5ch; }
+.warm i { display: block; height: 100%; background: linear-gradient(90deg, #ff9d3c, #fff4d6); box-shadow: 0 0 10px #ffc56e; animation: warm 1.1s ease-in both; }
+@keyframes warm { from { width: 0; } to { width: 100%; } }
+
+/* stap-titels flikkeren aan als een neonbuis */
+[data-fx="max"] .step-title { animation: neon .9s steps(1) both; }
+@keyframes neon { 0% { opacity: 0; } 10% { opacity: 1; } 18% { opacity: .2; } 26% { opacity: 1; } 40% { opacity: .5; } 48%, 100% { opacity: 1; } }
+
+/* log-kaart: glas + licht optillen */
+.logcard { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); transition: transform .25s, box-shadow .25s; }
+.logcard:hover { transform: translateY(-2px); box-shadow: 0 10px 40px -10px color-mix(in srgb, var(--a1) 45%, transparent); }
+
+/* knoppen: hoofdknop pulseert zacht */
+[data-fx]:not([data-fx="off"]) #quickbar .qb-main { animation: qbPulse 2.6s ease-in-out infinite; }
+@keyframes qbPulse { 50% { box-shadow: 0 0 22px color-mix(in srgb, var(--a1) 65%, transparent); } }
+
+/* ── datumkiezer ─────────────────────────────────────────── */
+.datepick { white-space: normal; margin-top: 1em; max-width: 560px; }
+.dp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: .7em 0; }
+.dp-chip { font-family: var(--font); font-size: .85em; cursor: pointer; color: var(--fg); background: rgba(16, 21, 46, .9); border: 1px solid var(--line);
+  border-radius: 8px; padding: .5em .9em; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; transition: all .15s; touch-action: manipulation; }
+.dp-chip b { color: #fff; } .dp-chip span { color: var(--dim); font-size: .85em; } .dp-chip i { font-style: normal; color: var(--green); font-size: .75em; }
+.dp-chip:hover { border-color: var(--a1); box-shadow: 0 0 14px color-mix(in srgb, var(--a1) 40%, transparent); transform: translateY(-1px); }
+.dp-cal { border: 1px solid var(--line); border-radius: 10px; padding: .6em .7em .7em; background: rgba(11, 15, 34, .85);
+  box-shadow: 0 0 30px -10px color-mix(in srgb, var(--a3) 60%, transparent); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; font-weight: 800; color: #fff; letter-spacing: .08em; text-transform: uppercase; font-size: .9em; margin-bottom: .4em; }
+.cal-nav { font-family: var(--font); background: none; border: 1px solid var(--line); color: var(--a1); border-radius: 6px; width: 2.2em; height: 2em; cursor: pointer; font-size: 1em; }
+.cal-nav:hover { border-color: var(--a1); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-wd { text-align: center; color: var(--dim); font-size: .75em; padding: .2em 0; }
+.cal-day { font-family: var(--font); font-size: .9em; aspect-ratio: 1.7; min-height: 2em; border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  background: rgba(255, 255, 255, .03); color: var(--fg); position: relative; transition: all .12s; touch-action: manipulation; }
+.cal-day:hover { border-color: var(--a1); color: #fff; background: color-mix(in srgb, var(--a1) 15%, transparent); }
+.cal-day.wknd { color: var(--dim); }
+.cal-day.future { opacity: .35; }
+.cal-day.has::after, .dp-dot { content: ''; position: absolute; left: 50%; bottom: 3px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dp-dot { position: relative; display: inline-block; left: 0; bottom: 0; margin: 0 2px; }
+.cal-day.today { border-color: var(--a4); color: #fff; font-weight: 800; box-shadow: 0 0 12px color-mix(in srgb, var(--a4) 50%, transparent); }
+.cal-day.sel { background: var(--a1); color: var(--ink); font-weight: 800; box-shadow: 0 0 18px var(--a1); }
+.cal-day.off { opacity: .25; cursor: default; }
+.cal-day.off:hover { border-color: transparent; background: rgba(255, 255, 255, .03); }
+.dp-hint { color: var(--dim); font-size: .82em; margin-top: .6em; }
+.dp-hint b { color: var(--a1); font-weight: 700; }
+.datepick.done .dp-chips, .datepick.done .dp-hint { display: none; }
+.datepick.done .dp-cal { pointer-events: none; opacity: .75; }
+
+/* ── help als kaarten ────────────────────────────────────── */
+.help-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; white-space: normal; max-width: 1100px; margin-top: .5em; }
+.help-card { border: 1px solid var(--line); border-radius: 10px; padding: .7em .9em; background: rgba(11, 15, 34, .8); position: relative; overflow: hidden; }
+.help-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(var(--a1), var(--a4)); }
+.help-card h4 { margin: 0 0 .4em; color: var(--a1); letter-spacing: .12em; font-size: .8em; }
+.hc-row { display: grid; grid-template-columns: 1.6em 1fr; gap: 0 .4em; padding: .3em 0; border-top: 1px dashed rgba(255, 255, 255, .06); cursor: pointer; }
+.hc-row:first-of-type { border-top: none; }
+.hc-row:hover .hc-cmd { text-shadow: 0 0 10px var(--green); }
+.hc-ico { color: var(--a4); text-align: center; }
+.hc-cmd { color: var(--green); font-weight: 800; }
+.hc-desc { grid-column: 2; color: var(--fg); font-size: .88em; }
+.hc-use { grid-column: 2; color: var(--dim); font-size: .8em; }
+.hc-al { color: var(--dim); font-weight: 400; font-size: .85em; }
+.banner-wrap { isolation: isolate; }
+[data-fx="low"] #stage.on .beam { animation-duration: 40s, 1.1s; }

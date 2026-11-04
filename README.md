@@ -17,7 +17,7 @@ Datum
 ➜ Meenemen naar morgen       (verschijnt de volgende dag automatisch)
 ```
 
-Sluit je de app halverwege? Je concept wordt na elke stap bewaard. Typ later gewoon `New-Log` om verder te gaan.
+Sluit je de app halverwege? Je concept wordt na elke stap bewaard. Typ later gewoon `new log` om verder te gaan.
 
 ## Installeren (gratis)
 
@@ -30,7 +30,7 @@ De app werkt daarna ook offline.
 
 ## Gratis AI (optioneel)
 
-Typ `Set-Config` en kies:
+Typ `set config` en kies:
 - **Google Gemini**: gratis sleutel via https://aistudio.google.com/apikey (aanrader)
 - **Groq**: gratis sleutel via https://console.groq.com/keys
 
@@ -40,27 +40,30 @@ De AI verzint niets. Hij stelt doorvragen ("welke lichttafel?", "wat was de oorz
 
 ## Commando's
 
+Typ gewoon met **spaties**, zonder streepjes. Hoofdletters maken niet uit, en de oude schrijfwijze (`New-Log`) werkt ook nog.
+
 | Commando | Wat het doet |
 |---|---|
-| `New-Log` | Je log van vandaag invullen (`New-Log gisteren`, `New-Log 3-11`) |
-| `Add-Taak` · `Add-Fout` · `Add-Geleerd` · `Add-Morgen` · `Add-Wie` | Snel iets toevoegen, ook tussendoor |
-| `Edit-Log` | Een log achteraf aanpassen: items wijzigen, toevoegen of verwijderen |
-| `Get-Log` · `Get-Logs` | Eén dag of het overzicht van alle dagen (met uren) bekijken |
-| `Find-Log dimmer` | Zoeken in al je logs |
-| `Get-Stats` | Statistieken, streak, uren en producties |
-| `Get-Summary` | AI-samenvatting (`-Week`, `-Days 30`) |
-| `Export-Verslag` | **Word (.docx)**, PDF of Markdown, voor alles, een week, een maand of een eigen periode |
-| `Backup-Logs` · `Restore-Logs` | Backup maken en terugzetten (ook om pc ↔ iPad over te zetten) |
-| `Set-Config` | Naam, opleiding, stageplek, mentor en AI |
-| `Set-Theme` | Kies een gel: congo · amber · magenta · peacock · red · uv |
-| `Set-Fx max\|low\|off` | Effecten (low spaart batterij) |
-| `help` | Alles op een rij |
+| `new log` | Je log invullen: eerst kies je de **datum** op een kalender, daarna 10 stappen (`new log gisteren`, `new log 3 november`) |
+| `add taak …` · `add fout …` · `add geleerd …` · `add morgen …` · `add wie …` | Snel iets toevoegen aan vandaag, ook tussendoor |
+| `edit log` | Een log achteraf aanpassen (kies de dag op de kalender) |
+| `get log` · `get logs` | Eén dag of het overzicht van alle dagen bekijken |
+| `zoek dimmer` | Zoeken in al je logs |
+| `stats` | Statistieken, streak, uren en producties |
+| `samenvatting` | AI-samenvatting (`samenvatting vorige week`, `samenvatting 30 dagen`, `samenvatting deze maand`) |
+| `export` | **Word (.docx)**, PDF of Markdown (`export word alles`, `export pdf vorige week`, `export word van 1-11 tot 7-11`) |
+| `backup` · `restore` | Backup maken en terugzetten (ook om pc ↔ iPad over te zetten) |
+| `setup` | Naam, opleiding, stageplek, mentor en AI |
+| `gel` | Kies een kleurfilter: congo · amber · magenta · peacock · red · uv (`gel amber`) |
+| `fx max` · `fx low` · `fx off` | Effecten (low spaart batterij) |
+| `help` | Alles op een rij, tik op een commando om het te starten |
 
+**Datums** mag je schrijven als: `vandaag`, `gisteren`, `vrijdag`, `3-11`, `3 november`, `2026-11-03`.
 **Tab** vult aan · **↑↓** geeft vorige commando's · **Ctrl+C** breekt af · op de iPad staan alle knoppen onderaan.
 
 ## Belangrijk: je gegevens
 
-Je logs staan **alleen op het apparaat** waarop je ze schrijft (in de browser). Maak dus af en toe een `Backup-Logs` en bewaar dat bestand in iCloud Drive of OneDrive. De app herinnert je eraan.
+Je logs staan **alleen op het apparaat** waarop je ze schrijft (in de browser). Maak dus af en toe een `backup logs` en bewaar dat bestand in iCloud Drive of OneDrive. De app herinnert je eraan.
 
 ## Lokaal testen
 

@@ -5,7 +5,7 @@
    eigen Google Gemini- of Groq-sleutel.
    ═══════════════════════════════════════════════════════════ */
 
-const VERSION = '3.0.0';
+const VERSION = '4.0.0';
 const LS_LOGS = 'stagelog.logs';
 const LS_SET = 'stagelog.settings';
 const LS_HIST = 'stagelog.history';
@@ -80,7 +80,7 @@ if (storedSet.stage && !storedSet.stageplek) settings.stageplek = storedSet.stag
 let history = load(LS_HIST, []);
 
 function saveLogs() {
-  if (!save(LS_LOGS, logs)) say('⚠ Opslaan mislukt (opslag vol of geblokkeerd). Maak een backup met Backup-Logs.', 'err');
+  if (!save(LS_LOGS, logs)) say('⚠ Opslaan mislukt (opslag vol of geblokkeerd). Maak een backup met backup logs.', 'err');
 }
 const saveSettings = () => save(LS_SET, settings);
 const clearDraft = () => { try { localStorage.removeItem(LS_DRAFT); } catch { /* ok */ } };
@@ -101,6 +101,18 @@ function parseDate(input) {
   if (['vandaag', 'today', 'nu'].includes(s)) return today();
   if (['gisteren', 'yesterday'].includes(s)) return addDays(today(), -1);
   if (s === 'eergisteren') return addDays(today(), -2);
+  if (s === 'morgen') return addDays(today(), 1);
+  // weekdag: "vrijdag" = de laatste vrijdag (vandaag inbegrepen)
+  const WD = ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'];
+  const wd = WD.findIndex(w => s.replace(/^(vorige|afgelopen)\s+/, '') === w || s === w.slice(0, 2) || s === w.slice(0, 3));
+  if (wd >= 0) { let d = today(); while (fromIso(d).getDay() !== wd) d = addDays(d, -1); if (/^(vorige|afgelopen)/.test(s) && d === today()) d = addDays(d, -7); return d; }
+  // "3 november", "3 nov", "3 nov 2026"
+  const MN = ['jan', 'feb', 'maa', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+  let w = s.match(/^(\d{1,2})\s+([a-z]+)\.?(?:\s+(\d{4}))?$/);
+  if (w) {
+    const mi = MN.findIndex(x => w[2].startsWith(x) || (x === 'maa' && w[2].startsWith('mrt')) || (x === 'okt' && w[2].startsWith('oct')));
+    if (mi >= 0) return valid(`${w[3] || new Date().getFullYear()}-${pad(mi + 1)}-${pad(w[1])}`);
+  }
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (m) return valid(`${m[1]}-${pad(m[2])}-${pad(m[3])}`);
   m = s.match(/^(\d{1,2})[-/.](\d{1,2})(?:[-/.](\d{2,4}))?$/);
@@ -220,8 +232,16 @@ function fireGo(sub) {
   const go = $('#go');
   go.querySelector('.go-sub').textContent = sub;
   go.classList.remove('fire'); void go.offsetWidth; go.classList.add('fire');
-  stage.classList.add('flare');
+  // alle spots draaien naar het midden van het scherm
+  const W = innerWidth, H = innerHeight;
+  document.querySelectorAll('.beam').forEach(b => {
+    const x = b.getBoundingClientRect().left + b.offsetWidth / 2;
+    b.style.setProperty('--aim', `${(-Math.atan2(W / 2 - x, H * .55) * 180 / Math.PI).toFixed(1)}deg`);
+  });
+  stage.classList.add('flare', 'focus');
   setTimeout(() => stage.classList.remove('flare'), 260);
+  setTimeout(() => stage.classList.remove('focus'), 1300);
+  if (fxMax()) window.burst?.(W / 2, H * .45);
 }
 
 // haze: stofdeeltjes die door de lichtbundels zweven
@@ -240,10 +260,29 @@ function fireGo(sub) {
     }));
   }
   addEventListener('resize', resize); resize();
+  let sparks = [];
+  window.burst = (x, y) => {
+    const cs = getComputedStyle(root);
+    const cols = ['--a1', '--a2', '--a4'].map(v => cs.getPropertyValue(v).trim()).concat('#fff4d6');
+    for (let i = 0; i < 140; i++) {
+      const a = Math.random() * 6.283, v = Math.random() * 7 + 2;
+      sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2, life: 1, r: Math.random() * 2 + .8, c: cols[i % cols.length] });
+    }
+  };
   function tick() {
     requestAnimationFrame(tick);
     if (!fxMax() || document.hidden) return;
     ctx.clearRect(0, 0, w, h);
+    if (sparks.length) {
+      ctx.globalCompositeOperation = 'lighter';
+      for (const s of sparks) {
+        s.x += s.vx; s.y += s.vy; s.vy += .12; s.vx *= .985; s.life -= .014;
+        ctx.globalAlpha = Math.max(0, s.life);
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fillStyle = s.c; ctx.fill();
+      }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      sparks = sparks.filter(s => s.life > 0 && s.y < h + 20);
+    }
     for (const p of parts) {
       p.x += p.vx; p.y += p.vy; p.t += .02;
       if (p.y < -5) { p.y = h + 5; p.x = Math.random() * w; }
@@ -370,11 +409,13 @@ function submit() {
 }
 
 function echoCommand(v) {
-  const parts = v.trim().split(/\s+/);
-  const first = parts.shift() || '';
-  const rest = parts.join(' ').replace(/(^|\s)(-\w+)/g, (m, s, p) => `${s}\u0000${p}\u0001`);
-  const restHtml = esc(rest).replace(/\u0000/g, '<span class="p">').replace(/\u0001/g, '</span>');
-  print(`${segmentsHtml()}<div class="cmdline"><span class="car">❯</span> <span class="c">${esc(first)}</span> ${restHtml}</div>`, 'echo');
+  const tokens = tokenize(v);
+  const hit = matchCommand(tokens);
+  const n = hit ? tokens.length - hit.rest.length : Math.min(1, tokens.length);
+  const words = v.trim().split(/\s+/);
+  const head = words.slice(0, n).join(' ');
+  const rest = words.slice(n).map(w => FLAG_WORDS[w.toLowerCase().replace(/^-/, '')] && hit && !hit.c.text ? `<span class="p">${esc(w)}</span>` : esc(w)).join(' ');
+  print(`${segmentsHtml()}<div class="cmdline"><span class="car">❯</span> <span class="${hit ? 'c' : 'err'}">${esc(head)}</span> ${rest}</div>`, 'echo');
 }
 
 input.addEventListener('keydown', e => {
@@ -398,15 +439,14 @@ input.addEventListener('keydown', e => {
 });
 
 function complete() {
-  const v = input.value;
-  if (/\s/.test(v)) return;
-  const low = v.toLowerCase();
-  const hits = COMMANDS.map(c => c.name).filter(n => n.toLowerCase().startsWith(low));
+  const v = input.value.replace(/\s+/g, ' ').trimStart().toLowerCase();
+  if (!v) return;
+  const hits = COMMANDS.map(c => c.name).filter(n => n.startsWith(v) || norm(n).startsWith(norm(v)));
   if (hits.length === 1) input.value = hits[0] + ' ';
   else if (hits.length > 1) {
     print(hits.map(h => `<span class="info">${esc(h)}</span>`).join('   '), '');
     let common = hits[0];
-    for (const h of hits) while (!h.toLowerCase().startsWith(common.toLowerCase())) common = common.slice(0, -1);
+    for (const h of hits) while (!h.startsWith(common)) common = common.slice(0, -1);
     if (common.length > v.length) input.value = common;
   }
 }
@@ -417,7 +457,7 @@ function focusInput() {
 }
 
 out.addEventListener('click', e => {
-  if (e.target.closest('a, button, .row, .gel, .row-link')) return;
+  if (e.target.closest('a, button, .row, .gel, .row-link, .help-card, .datepick')) return;
   if (String(getSelection())) return;
   input.focus({ preventScroll: true });
 });
@@ -434,37 +474,72 @@ $('#quickbar').addEventListener('click', e => {
 function runFromUi(cmd) { if (!busy && mode === 'cmd') { input.value = cmd; submit(); } }
 
 // ── parser ────────────────────────────────────────────────
-function parse(line) {
+// Commando's mogen met spaties, streepjes of aan elkaar: "new log", "New-Log", "newlog".
+const norm = x => String(x).toLowerCase().replace(/[-_\s]/g, '');
+const FLAG_WORDS = {
+  date: 'date', datum: 'date', format: 'format', formaat: 'format', week: 'week', days: 'days', dagen: 'days', dag: 'days',
+  from: 'from', van: 'from', vanaf: 'from', to: 'to', tot: 'to', all: 'all', alles: 'all', model: 'model',
+  maand: 'month', month: 'month', vorige: 'prev', previous: 'prev', last: 'prev', nosummary: 'nosummary',
+};
+const VALUE_FLAGS = new Set(['date', 'format', 'from', 'to', 'model']);
+const FORMAT_WORDS = { word: 'word', docx: 'word', doc: 'word', pdf: 'pdf', md: 'md', markdown: 'md' };
+
+function tokenize(line) {
   const tokens = [];
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
   let m;
   while ((m = re.exec(line))) tokens.push({ v: m[1] ?? m[2] ?? m[3], quoted: m[3] === undefined });
-  const cmd = tokens.shift()?.v || '';
-  const args = { _: [], named: {} };
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    if (!t.quoted && /^-[a-zA-Z]/.test(t.v)) {
-      const key = t.v.slice(1).toLowerCase();
-      const next = tokens[i + 1];
-      if (next && (next.quoted || !/^-[a-zA-Z]/.test(next.v))) { args.named[key] = next.v; i++; }
-      else args.named[key] = true;
-    } else args._.push(t.v);
-  }
-  return { cmd, args };
+  return tokens;
 }
 
-function findCommand(name) {
-  const n = name.toLowerCase();
-  return COMMANDS.find(c => c.name.toLowerCase() === n || c.alias.includes(n));
+function matchCommand(tokens) {
+  for (let k = Math.min(3, tokens.length); k >= 1; k--) {
+    if (tokens.slice(0, k).some(t => t.quoted)) continue;
+    const key = norm(tokens.slice(0, k).map(t => t.v).join(''));
+    const c = COMMANDS.find(c => norm(c.name) === key || c.alias.some(a => norm(a) === key));
+    if (c) return { c, rest: tokens.slice(k), used: tokens.slice(0, k).map(t => t.v).join(' ') };
+  }
+  return null;
+}
+
+function parseArgs(tokens, c) {
+  const args = { _: [], named: {} };
+  const allowed = c.flags || [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const low = t.v.toLowerCase();
+    let key = null;
+    if (!t.quoted && /^-[a-z]/i.test(t.v) && (!c.text || low === '-date')) key = FLAG_WORDS[low.slice(1)] || low.slice(1);
+    else if (!t.quoted && !c.text && FLAG_WORDS[low] && allowed.includes(FLAG_WORDS[low])) key = FLAG_WORDS[low];
+    if (key) {
+      const next = tokens[i + 1];
+      if (VALUE_FLAGS.has(key)) { if (next) { args.named[key] = next.v; i++; } else args.named[key] = true; }
+      else if (key === 'week' || key === 'days') {
+        if (next && /^\d+$/.test(next.v)) { args.named[key] = next.v; i++; }
+        else if (key === 'days' && /^\d+$/.test(args._[args._.length - 1] || '')) args.named.days = args._.pop();
+        else args.named[key] = true;
+      } else args.named[key] = true;
+    } else if (!t.quoted && c.formats && FORMAT_WORDS[low]) args.named.format = FORMAT_WORDS[low];
+    else if (!t.quoted && !c.text && ['deze', 'van', 'de', 'het'].includes(low)) continue; // vulwoorden: "deze week", "van de maand"
+    else args._.push(t.v);
+  }
+  if (args.named.prev) { if (!args.named.week || args.named.week === true) args.named.week = '1'; delete args.named.prev; }
+  return args;
+}
+
+function parse(line) {
+  const tokens = tokenize(line);
+  const hit = matchCommand(tokens);
+  if (!hit) return { cmd: tokens[0]?.v || '', c: null, args: { _: [], named: {} } };
+  return { cmd: hit.used, c: hit.c, args: parseArgs(hit.rest, hit.c) };
 }
 
 async function run(line) {
-  const { cmd, args } = parse(line);
+  const { cmd, c, args } = parse(line);
   if (!cmd) return;
-  const c = findCommand(cmd);
   if (!c) {
-    const core = cmd.toLowerCase().replace(/^(get|new|set|add|remove)-?/, '');
-    const sugg = core ? COMMANDS.filter(x => x.name.toLowerCase().includes(core) || x.alias.some(a => a.includes(core))).slice(0, 3) : [];
+    const core = norm(cmd).replace(/^(get|new|set|add|remove)/, '');
+    const sugg = core ? COMMANDS.filter(x => norm(x.name).includes(core) || x.alias.some(a => norm(a).includes(core))).slice(0, 3) : [];
     print(`<span class="err">${esc(cmd)} : De term '${esc(cmd)}' wordt niet herkend als commando.</span>`);
     print(sugg.length
       ? `<span class="dim">Bedoelde je: </span>${sugg.map(s => `<span class="info">${s.name}</span>`).join(', ')}<span class="dim"> ?</span>`
@@ -475,7 +550,7 @@ async function run(line) {
   try {
     await c.fn(args);
   } catch (e) {
-    if (e instanceof Cancel) say(c.name === 'New-Log' && load(LS_DRAFT, null) ? 'Afgebroken. 💾 Je concept is bewaard: typ New-Log om verder te gaan.' : 'Afgebroken.', 'dim');
+    if (e instanceof Cancel) say(c.name === 'new log' && load(LS_DRAFT, null) ? 'Afgebroken. 💾 Je concept is bewaard: typ new log om verder te gaan.' : 'Afgebroken.', 'dim');
     else if (e instanceof UserError) say('✖ ' + e.message, 'err');
     else { console.error(e); say('✖ Fout: ' + (e.message || e), 'err'); }
   } finally {
@@ -520,7 +595,7 @@ const aiReady = () => settings.provider !== 'none' && !!settings.keys[settings.p
 class ModelGone extends Error {}
 
 async function aiCall(system, user, opts = {}) {
-  if (!aiReady()) throw new UserError('AI is niet ingesteld. Typ Set-Config.');
+  if (!aiReady()) throw new UserError('AI is niet ingesteld. Typ set config.');
   const p = settings.provider;
   const tried = new Set();
   let model = settings.models[p];
@@ -533,7 +608,7 @@ async function aiCall(system, user, opts = {}) {
     } catch (e) {
       if (!(e instanceof ModelGone)) throw e;
       const next = MODEL_FALLBACKS[p].find(m => !tried.has(m));
-      if (!next) throw new UserError(`Geen werkend AI-model gevonden. Stel er zelf een in met: Set-Config -Model <naam>`);
+      if (!next) throw new UserError(`Geen werkend AI-model gevonden. Stel er zelf een in met: set config model <naam>`);
       model = next;
     }
   }
@@ -572,7 +647,7 @@ async function aiRequest(model, system, user, { json = true, temperature = 0.4 }
   if (!res.ok) {
     const msg = data?.error?.message || res.statusText;
     if (res.status === 429) throw new UserError('Gratis AI-limiet even bereikt. Wacht een minuutje en probeer opnieuw.');
-    if ((res.status === 400 && /api key/i.test(msg)) || res.status === 401 || res.status === 403) throw new UserError('API-sleutel ongeldig. Typ Set-Config om hem opnieuw in te stellen.');
+    if ((res.status === 400 && /api key/i.test(msg)) || res.status === 401 || res.status === 403) throw new UserError('API-sleutel ongeldig. Typ set config om hem opnieuw in te stellen.');
     if (res.status === 404 || /decommission|not found|does not exist|no longer|not supported/i.test(msg)) throw new ModelGone(model);
     throw new UserError(`AI-fout (${res.status}): ${msg}`);
   }
@@ -651,6 +726,72 @@ async function aiPolish(date, raw) {
 }
 
 // ── commando's ────────────────────────────────────────────
+// ── datumkiezer: kalender + snelknoppen (werkt met muis, vinger of typen) ──
+const MONTHS = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+
+async function pickDate(question, { onlyLogged = false, step = null } = {}) {
+  const t = today();
+  const wrap = print(`<div class="datepick">
+    ${step ? `<div class="step-top"><span class="step-n">STAP ${step[0]}/${step[1]}</span><span class="step-bar"><i style="--p:${step[0] / step[1]}"></i></span></div>` : ''}
+    <div class="step-title"><span class="step-ico">📅</span> <span class="st"></span><span class="step-req">● KIES EEN DATUM</span></div>
+    <div class="step-hint">${esc(question)}</div>
+    <div class="dp-chips"></div>
+    <div class="dp-cal"></div>
+    <div class="dp-hint">Tik op een dag in de kalender, kies een knop of typ een datum (bv. <b>3-11</b> of <b>gisteren</b>).${onlyLogged ? ' Alleen dagen met een log (<span class="dp-dot"></span>) kunnen' + (logs[t] ? '; leeg = vandaag.' : '.') : ' Leeg = vandaag.'}</div>
+  </div>`);
+  scramble(wrap.querySelector('.st'), 'DATUM');
+  const choose = iso => { if (pending && !wrap.classList.contains('done')) { input.value = iso; submit(); } };
+
+  const chips = wrap.querySelector('.dp-chips');
+  const quick = [['Vandaag', t], ['Gisteren', addDays(t, -1)], ['Eergisteren', addDays(t, -2)]];
+  if (onlyLogged) { const last = sortedDates().reverse().slice(0, 3); quick.splice(0, 3, ...last.map(d => [shortDay(d), d])); }
+  for (const [label, d] of quick) {
+    const b = document.createElement('button');
+    b.className = 'dp-chip' + (logs[d] ? ' has' : '');
+    b.innerHTML = `<b>${esc(label)}</b><span>${esc(fromIso(d).toLocaleDateString('nl', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>${logs[d] ? '<i>✓ log</i>' : ''}`;
+    b.addEventListener('click', () => choose(d));
+    chips.appendChild(b);
+  }
+
+  const cal = wrap.querySelector('.dp-cal');
+  let view = fromIso(t); view.setDate(1);
+  let selected = null;
+  const render = () => {
+    const y = view.getFullYear(), m = view.getMonth();
+    const first = (new Date(y, m, 1).getDay() + 6) % 7;
+    const n = new Date(y, m + 1, 0).getDate();
+    let html = `<div class="cal-head"><button class="cal-nav" data-nav="-1">‹</button><span>${MONTHS[m]} ${y}</span><button class="cal-nav" data-nav="1">›</button></div>
+      <div class="cal-grid">${['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'].map(d => `<span class="cal-wd">${d}</span>`).join('')}`;
+    for (let i = 0; i < first; i++) html += '<span></span>';
+    for (let d = 1; d <= n; d++) {
+      const iso = `${y}-${pad(m + 1)}-${pad(d)}`;
+      const wd = (first + d - 1) % 7;
+      const cls = ['cal-day', logs[iso] && 'has', iso === t && 'today', iso > t && 'future', wd > 4 && 'wknd', iso === selected && 'sel', onlyLogged && !logs[iso] && 'off'].filter(Boolean).join(' ');
+      html += `<button class="${cls}" data-d="${iso}">${d}</button>`;
+    }
+    cal.innerHTML = html + '</div>';
+  };
+  cal.addEventListener('click', e => {
+    const nav = e.target.closest('[data-nav]');
+    if (nav) { view.setMonth(view.getMonth() + +nav.dataset.nav); render(); return; }
+    const day = e.target.closest('[data-d]');
+    if (day && !day.classList.contains('off')) choose(day.dataset.d);
+  });
+  render();
+
+  for (;;) {
+    const v = (await ask('', { hint: 'datum', prose: false })).trim();
+    const d = v ? parseDate(v) : (onlyLogged ? (logs[t] ? t : null) : t);
+    if (!d) { say(v ? '⚠ Die datum snap ik niet. Probeer bv. 3-11, 2026-11-03 of gisteren.' : '⚠ Kies een dag met een log.', 'warn'); continue; }
+    if (onlyLogged && !logs[d]) { say(`⚠ Op ${longDate(d)} heb je geen log. Kies een dag met een stipje.`, 'warn'); continue; }
+    if (d > t && !(await yes(`⚠ ${capDate(d)} ligt in de toekomst. Toch deze datum? [j/N]`, false))) continue;
+    selected = d; view = fromIso(d); view.setDate(1); render();
+    wrap.classList.add('done');
+    say(`📅 ${capDate(d)}${logs[d] ? '  (heeft al een log)' : ''}`, 'ok');
+    return d;
+  }
+}
+
 function stepHeader(i, total, f, extra = '') {
   const d = print(`<div class="step">
     <div class="step-top"><span class="step-n">STAP ${i}/${total}</span><span class="step-bar"><i style="--p:${i / total};--from:${(i - 1) / i}"></i></span></div>
@@ -660,18 +801,23 @@ function stepHeader(i, total, f, extra = '') {
 }
 
 async function cmdNewLog(a) {
-  const date = parseDate(a.named.date ?? a._[0]);
-  if (!date) throw new UserError('Ongeldige datum. Gebruik bv. 2026-11-03, 3-11, vandaag of gisteren.');
-  print(`<span class="section">◆ NEW-LOG</span> <span class="b">${esc(capDate(date))}</span>`);
-
   const steps = [...TEXT_FIELDS, ...LIST_FIELDS];
+  const TOTAL = steps.length + 1; // + datum
+  const given = a.named.date ?? a._.join(' ');
+  print('<span class="section">◆ NEW LOG</span>');
+  let date;
+  if (given && given !== true) {
+    date = parseDate(given);
+    if (!date) throw new UserError('Ongeldige datum. Gebruik bv. 3-11, 2026-11-03, vandaag of gisteren.');
+    say(`📅 ${capDate(date)}`, 'ok');
+  } else date = await pickDate('Voor welke dag schrijf je deze log?', { step: [1, TOTAL] });
   let raw = null;
   let startStep = 0;
 
   // onafgewerkt concept? (app gesloten, ^C, batterij leeg…)
   const draft = load(LS_DRAFT, null);
   if (draft && draft.date === date && draft.raw) {
-    say(`💾 Je was nog bezig met deze log (stap ${Math.min(draft.step + 1, steps.length)}/${steps.length}).`, 'info');
+    say(`💾 Je was nog bezig met deze log (stap ${Math.min(draft.step + 2, TOTAL)}/${TOTAL}).`, 'info');
     const c = (await ask('[V]erder gaan waar je was  /  [O]pnieuw beginnen', { prose: false })).trim().toLowerCase();
     if (!c.startsWith('o')) { raw = normalize(draft.raw, date); startStep = draft.step; }
     else clearDraft();
@@ -682,7 +828,7 @@ async function cmdNewLog(a) {
     if (logs[date]) {
       say('Er bestaat al een log voor deze dag:', 'dim');
       showLog(logs[date]);
-      const c = (await ask('[A]anvullen, [B]ewerken (Edit-Log), [O]pnieuw beginnen of [S]toppen?', { prose: false })).trim().toLowerCase();
+      const c = (await ask('[A]anvullen, [B]ewerken (edit log), [O]pnieuw beginnen of [S]toppen?', { prose: false })).trim().toLowerCase();
       if (c.startsWith('a')) raw = normalize(JSON.parse(JSON.stringify(logs[date])), date);
       else if (c.startsWith('b')) return cmdEditLog({ _: [date], named: {} });
       else if (!c.startsWith('o')) { say('Niets veranderd.', 'dim'); return; }
@@ -696,7 +842,7 @@ async function cmdNewLog(a) {
     const f = steps[i];
     if (TEXT_FIELDS.includes(f)) {
       const prev = raw[f.key] || (f.remember ? lastValue(f.key, date) : '');
-      stepHeader(i + 1, steps.length, f);
+      stepHeader(i + 2, TOTAL, f);
       say(f.q + (prev ? `   (leeg = "${prev}", - = leeg laten)` : '   (leeg = overslaan)'), 'q');
       let v = (await ask('', { hint: f.label })).trim();
       v = v === '-' ? '' : (v || prev);
@@ -711,7 +857,7 @@ async function cmdNewLog(a) {
     } else {
       const have = raw[f.key];
       const extra = have.length ? `<div class="prev">al ingevuld: ${have.map(t => `<span class="item">${esc(t)}</span>`).join(' · ')}</div>` : '';
-      stepHeader(i + 1, steps.length, f, extra);
+      stepHeader(i + 2, TOTAL, f, extra);
       say(f.q + '   (één per regel, lege regel = volgende stap)', 'q');
       let items = await askList(f.label, have.length + 1);
       while (f.required && !have.length && !items.length) {
@@ -730,7 +876,7 @@ async function cmdNewLog(a) {
       final = (await aiPolish(date, raw)) || raw;
     }
   } else {
-    say('Tip: koppel gratis AI met Set-Config. Dan vraagt hij door en verbetert hij spelling en vaktermen.', 'dim');
+    say('Tip: koppel gratis AI met set config. Dan vraagt hij door en verbetert hij spelling en vaktermen.', 'dim');
   }
 
   showLog(final);
@@ -738,7 +884,7 @@ async function cmdNewLog(a) {
   if (final !== raw) choice = (await ask('Opslaan? [J]a  /  [E]igen versie (zonder AI)  /  [N]ee', { prose: false })).trim().toLowerCase() || 'j';
   else if (!(await yes('Opslaan? [J/n]'))) choice = 'n';
 
-  if (choice.startsWith('n')) { say('Niet opgeslagen. Je concept blijft bewaard: typ New-Log om verder te gaan.', 'warn'); return; }
+  if (choice.startsWith('n')) { say('Niet opgeslagen. Je concept blijft bewaard: typ new log om verder te gaan.', 'warn'); return; }
   const chosen = choice.startsWith('e') ? raw : final;
   logs[date] = { ...normalize(chosen, date), raw: pick(raw), updated: Date.now() };
   saveLogs();
@@ -771,9 +917,11 @@ function quickAdd(key) {
 }
 
 async function cmdEditLog(a) {
-  const date = parseDate(a.named.date ?? a._[0]);
+  if (!logCount()) throw new UserError('Je hebt nog geen logs om te bewerken. Begin met: new log');
+  const given = a.named.date ?? a._.join(' ');
+  const date = given && given !== true ? parseDate(given) : await pickDate('Welke dag wil je bewerken?', { onlyLogged: true });
   if (!date) throw new UserError('Ongeldige datum.');
-  if (!logs[date]) throw new UserError(`Geen log voor ${longDate(date)}. Maak er een met: New-Log ${date}`);
+  if (!logs[date]) throw new UserError(`Geen log voor ${longDate(date)}. Maak er een met: new log ${date}`);
   const e = normalize(JSON.parse(JSON.stringify(logs[date])), date);
   const fields = [...TEXT_FIELDS, ...LIST_FIELDS];
   let changed = false;
@@ -849,18 +997,18 @@ async function cmdFind(a) {
     if (!found.length) continue;
     hits += found.length;
     const row = print(`<span class="info">${d}</span> <span class="dim">${esc(shortDay(d))}${e.productie ? ' · ' + esc(e.productie) : ''}  ↗</span>`, 'row-link');
-    row.addEventListener('click', () => runFromUi(`Get-Log ${d}`));
+    row.addEventListener('click', () => runFromUi(`get log ${d}`));
     for (const [f, t] of found) print(`   <span class="dim">${f.icon} ${esc(f.short || f.title)}:</span> ${mark(t, q)}`);
   }
   say(hits ? `${hits} resultaat${hits === 1 ? '' : 'en'} voor "${q}". Klik een datum om de hele log te openen.` : `Niets gevonden voor "${q}".`, hits ? 'dim' : 'warn');
 }
 
 async function cmdGetLog(a) {
-  const date = parseDate(a.named.date ?? a._[0]);
+  const date = parseDate(a.named.date ?? a._.join(' '));
   if (!date) throw new UserError('Ongeldige datum.');
   if (!logs[date]) {
     say(`Geen log gevonden voor ${longDate(date)}.`, 'warn');
-    if (date === today()) print('<span class="dim">Start er een met </span><span class="info">New-Log</span><span class="dim"> of voeg snel iets toe met </span><span class="info">Add-Taak</span>');
+    if (date === today()) print('<span class="dim">Start er een met </span><span class="info">new log</span><span class="dim"> of voeg snel iets toe met </span><span class="info">add taak</span>');
     return;
   }
   showLog(logs[date]);
@@ -868,7 +1016,7 @@ async function cmdGetLog(a) {
 
 async function cmdGetLogs() {
   const dates = sortedDates().reverse();
-  if (!dates.length) { say('Nog geen logs. Begin met New-Log.', 'warn'); return; }
+  if (!dates.length) { say('Nog geen logs. Begin met new log.', 'warn'); return; }
   const wrap = print('', '');
   const t = document.createElement('div');
   t.className = 'table';
@@ -879,18 +1027,20 @@ async function cmdGetLogs() {
     row.className = 'row';
     row.title = 'Klik om te openen';
     row.innerHTML = `<span class="info">${d}</span><span class="dim wd">${esc(shortDay(d))}</span><span>${esc(e.productie || e.taken[0] || '—')}${e.locatie ? ` <span class="dim">@ ${esc(e.locatie)}</span>` : ''}</span><span class="num">${fmtMins(parseHours(e.uren)) || '—'}</span><span class="num">${e.taken.length}</span>`;
-    row.addEventListener('click', () => runFromUi(`Get-Log ${d}`));
+    row.addEventListener('click', () => runFromUi(`get log ${d}`));
     t.appendChild(row);
   }
   wrap.appendChild(t);
   const mins = dates.reduce((n, d) => n + (parseHours(logs[d].uren) || 0), 0);
-  say(`${dates.length} log(s)${mins ? ` · ${fmtMins(mins)} gewerkt in totaal` : ''}. Klik een rij of typ: Get-Log <datum>`, 'dim');
+  say(`${dates.length} log(s)${mins ? ` · ${fmtMins(mins)} gewerkt in totaal` : ''}. Klik een rij of typ: get log <datum>`, 'dim');
   scrollDown();
 }
 
 async function cmdRemoveLog(a) {
-  const date = parseDate(a.named.date ?? a._[0]);
-  if (!date || !logs[date]) throw new UserError('Geen log gevonden voor die datum. Gebruik: Remove-Log 2026-11-03');
+  if (!logCount()) throw new UserError('Er zijn geen logs om te verwijderen.');
+  const given = a.named.date ?? a._.join(' ');
+  const date = given && given !== true ? parseDate(given) : await pickDate('Welke log wil je verwijderen?', { onlyLogged: true });
+  if (!date || !logs[date]) throw new UserError('Geen log gevonden voor die datum. Gebruik: remove log 2026-11-03');
   showLog(logs[date]);
   const c = (await ask('Typ <b>verwijder</b> om deze log definitief te wissen:', { prose: false })).trim().toLowerCase();
   if (c !== 'verwijder') { say('Niet verwijderd.', 'dim'); return; }
@@ -903,6 +1053,7 @@ function rangeFromArgs(a) {
   let from = a.named.from ? parseDate(a.named.from) : null;
   let to = a.named.to ? parseDate(a.named.to) : null;
   if (a.named.days) { const n = parseInt(a.named.days, 10) || 7; from = addDays(today(), -(n - 1)); to = today(); }
+  if (a.named.month) { from = today().slice(0, 8) + '01'; to = today(); }
   if (a.named.week) {
     const back = a.named.week === true ? 0 : parseInt(a.named.week, 10) || 0;
     const d = new Date(); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd - 7 * back);
@@ -932,10 +1083,10 @@ Verzin niets dat niet in de logs staat.`, JSON.stringify(data), { json: false })
 }
 
 async function cmdSummary(a) {
-  if (!a.named.days && !a.named.week && !a.named.from) a.named.days = '7';
+  if (!a.named.days && !a.named.week && !a.named.from && !a.named.month && !a.named.all) a.named.days = '7';
   const dates = rangeFromArgs(a);
   if (!dates.length) throw new UserError('Geen logs in die periode.');
-  if (!aiReady()) throw new UserError('Hiervoor heb je AI nodig. Typ Set-Config.');
+  if (!aiReady()) throw new UserError('Hiervoor heb je AI nodig. Typ set config.');
   const stop = spinner(`AI vat ${dates.length} dag(en) samen`);
   let text;
   try { text = await aiSummaryText(dates); stop(`✔ Samenvatting ${dates[0]} → ${dates[dates.length - 1]}`, 'ok'); }
@@ -1078,7 +1229,7 @@ async function deliver(blob, filename) {
 const download = (name, content, type) => deliver(new Blob([content], { type }), name);
 
 async function askPeriod(a) {
-  if (a.named.from || a.named.to || a.named.week || a.named.days || a.named.all) return rangeFromArgs(a);
+  if (a.named.from || a.named.to || a.named.week || a.named.days || a.named.all || a.named.month) return rangeFromArgs(a);
   const all = sortedDates();
   if (!all.length) throw new UserError('Nog geen logs om te exporteren.');
   print(`Welke periode? <span class="info">[A]</span> alles <span class="dim">(${all.length} dagen)</span> · <span class="info">[W]</span> deze week · <span class="info">[V]</span> vorige week · <span class="info">[M]</span> deze maand · <span class="info">[D]</span> zelf kiezen`, 'q');
@@ -1164,7 +1315,7 @@ function cmdRestore() {
         }
         for (const k of ['name', 'opleiding', 'stageplek', 'mentor', 'provider', 'theme', 'fx']) if (data.settings?.[k]) settings[k] = data.settings[k];
         if (data.settings?.models) settings.models = { ...settings.models, ...data.settings.models };
-        if (settings.provider !== 'none' && !settings.keys[settings.provider]) say(`ℹ Plak je ${settings.provider}-sleutel opnieuw in met Set-Config (sleutels zitten niet in backups).`, 'dim');
+        if (settings.provider !== 'none' && !settings.keys[settings.provider]) say(`ℹ Plak je ${settings.provider}-sleutel opnieuw in met set config (sleutels zitten niet in backups).`, 'dim');
         saveSettings(); saveLogs(); applyLook(); renderPrompt();
         say(`✔ ${n} log(s) teruggezet. Totaal nu: ${logCount()}.`, 'ok');
       } catch { say('✖ Dit bestand kon niet gelezen worden.', 'err'); }
@@ -1183,7 +1334,7 @@ async function askKeep(label, cur, example, hint) {
 
 async function cmdConfig(a) {
   if (typeof a.named.model === 'string') {
-    if (settings.provider === 'none') throw new UserError('Kies eerst een AI-provider met Set-Config.');
+    if (settings.provider === 'none') throw new UserError('Kies eerst een AI-provider met set config.');
     settings.models[settings.provider] = a.named.model; saveSettings();
     say(`✔ Model voor ${settings.provider} is nu ${a.named.model}.`, 'ok');
     return;
@@ -1217,11 +1368,11 @@ async function cmdConfig(a) {
     if (settings.keys[pr]) await cmdTestAI();
     else say('Geen sleutel ingesteld, dus AI staat nog uit.', 'warn');
   }
-  say('✔ Instellingen opgeslagen. Kies ook eens een kleurfilter met Set-Theme 🎨', 'ok');
+  say('✔ Instellingen opgeslagen. Kies ook eens een kleurfilter met set theme 🎨', 'ok');
 }
 
 async function cmdTestAI() {
-  if (!aiReady()) throw new UserError('Geen AI ingesteld. Typ Set-Config.');
+  if (!aiReady()) throw new UserError('Geen AI ingesteld. Typ set config.');
   const stop = spinner(`Verbinding testen met ${settings.provider} (${settings.models[settings.provider]})`);
   try {
     const r = await aiCall('Antwoord alleen met JSON: {"groet":"<korte stoere groet voor een lichttechnicus in het Nederlands, max 8 woorden>"}', 'ping', { temperature: 0.9 });
@@ -1289,10 +1440,10 @@ ${lbl('Stageplek')} ${esc(settings.stageplek || '—')}
 ${lbl('Logs')} <b>${dates.length}</b>${dates.length ? ` <span class="dim">(${dates[0]} → ${dates[dates.length - 1]})</span>` : ''}
 ${lbl('Streak')} <b>${st ? '🔥 ' + st : '0'}</b> <span class="dim">dagen op rij</span>
 ${lbl('Gewerkte uren')} <b>${fmtMins(dates.reduce((n, d) => n + (parseHours(logs[d].uren) || 0), 0)) || '—'}</b>
-${lbl('Laatste backup')} ${settings.lastBackup ? esc(new Date(settings.lastBackup).toLocaleDateString('nl')) : '<span class="warn">nog nooit</span> <span class="dim">(Backup-Logs)</span>'}
+${lbl('Laatste backup')} ${settings.lastBackup ? esc(new Date(settings.lastBackup).toLocaleDateString('nl')) : '<span class="warn">nog nooit</span> <span class="dim">(backup logs)</span>'}
 ${LIST_FIELDS.map(f => `${lbl(f.icon + ' ' + f.short)} ${bar(counts[f.key])} <b>${counts[f.key]}</b>`).join('\n')}
 ${lbl('Producties')} ${topProds.length ? topProds.map(([p, n]) => `${esc(p)} <span class="dim">(${n}d)</span>`).join(' · ') : '—'}
-${lbl('AI')} ${aiReady() ? `<span class="ok">● ${settings.provider}</span> <span class="dim">${esc(settings.models[settings.provider])}</span>` : '<span class="warn">○ uit</span> <span class="dim">(Set-Config)</span>'}
+${lbl('AI')} ${aiReady() ? `<span class="ok">● ${settings.provider}</span> <span class="dim">${esc(settings.models[settings.provider])}</span>` : '<span class="warn">○ uit</span> <span class="dim">(set config)</span>'}
 ${lbl('Gel / effecten')} ${esc(GELS[settings.theme]?.name || '')} · fx ${settings.fx}
 ${lbl('Versie')} v${VERSION}`);
 }
@@ -1300,37 +1451,48 @@ ${lbl('Versie')} v${VERSION}`);
 function cmdHelp() {
   const groups = {};
   for (const c of COMMANDS) (groups[c.group] = groups[c.group] || []).push(c);
-  const rows = Object.entries(groups).map(([g, cs]) => `<div class="help-h">── ${esc(g.toUpperCase())}</div>` + cs.map(c =>
-    `<span class="cmd">${c.name}</span><span class="desc">${esc(c.desc)}${c.alias.length ? ` <span class="al">[${c.alias.join(', ')}]</span>` : ''}${c.usage ? `<br><span class="dim">  ${esc(c.usage)}</span>` : ''}</span>`).join('')).join('');
-  print('<span class="section">◆ GET-HELP</span>');
-  print(`<div class="help-grid">${rows}</div>`);
+  print('<span class="section">◆ HELP</span> <span class="dim">— typ gewoon met spaties, bv. <b>new log</b> of <b>export word alles</b>. Tik op een commando om het te starten.</span>');
+  const wrap = print('');
+  const grid = document.createElement('div');
+  grid.className = 'help-cards';
+  for (const [g, cs] of Object.entries(groups)) {
+    const card = document.createElement('div');
+    card.className = 'help-card';
+    card.innerHTML = `<h4>── ${esc(g.toUpperCase())}</h4>` + cs.map(c => `<div class="hc-row" data-cmd="${esc(c.name)}">
+      <span class="hc-ico">${c.icon || '›'}</span><span class="hc-cmd">${esc(c.name)} ${c.alias.length ? `<span class="hc-al">· ${esc(c.alias.filter(a => !/[-]/.test(a)).slice(0, 3).join(' · '))}</span>` : ''}</span>
+      <span class="hc-desc">${esc(c.desc)}</span>${c.usage ? `<span class="hc-use">${esc(c.usage)}</span>` : ''}</div>`).join('');
+    grid.appendChild(card);
+  }
+  grid.addEventListener('click', e => { const r = e.target.closest('[data-cmd]'); if (r) runFromUi(r.dataset.cmd); });
+  wrap.appendChild(grid);
   say('Tab = aanvullen · ↑↓ = vorige commando\'s · Ctrl+C = afbreken · Ctrl+L = scherm leeg', 'dim');
-  say('Datums: vandaag, gisteren, 3-11, 2026-11-03', 'dim');
+  say('Datums: vandaag · gisteren · vrijdag · 3-11 · 3 november · 2026-11-03', 'dim');
+  scrollDown();
 }
 
 const COMMANDS = [
-  { group: 'Loggen', name: 'New-Log', alias: ['nl', 'new', 'log'], desc: 'Je volledige log van vandaag invullen, stap voor stap', usage: 'New-Log  |  New-Log -Date gisteren', fn: cmdNewLog },
-  { group: 'Loggen', name: 'Add-Taak', alias: ['taak', 'task', 'add-task'], desc: 'Snel een taak toevoegen (ook tussendoor)', usage: 'Add-Taak "Moving heads gepatcht op universe 2"', fn: quickAdd('taken') },
-  { group: 'Loggen', name: 'Add-Fout', alias: ['fout'], desc: 'Snel iets toevoegen dat fout liep', fn: quickAdd('fouten') },
-  { group: 'Loggen', name: 'Add-Geleerd', alias: ['geleerd', 'les', 'add-lesson'], desc: 'Snel iets toevoegen dat je geleerd hebt', fn: quickAdd('geleerd') },
-  { group: 'Loggen', name: 'Add-Morgen', alias: ['morgen', 'todo'], desc: 'Iets noteren om mee te nemen naar morgen', fn: quickAdd('meenemen') },
-  { group: 'Loggen', name: 'Add-Wie', alias: ['wie'], desc: 'Iemand toevoegen die er vandaag was', fn: quickAdd('wie') },
-  { group: 'Loggen', name: 'Edit-Log', alias: ['edit', 'bewerk', 'el'], desc: 'Een log achteraf aanpassen: items wijzigen, toevoegen of verwijderen', usage: 'Edit-Log  |  Edit-Log gisteren  |  Edit-Log 3-11', fn: cmdEditLog },
-  { group: 'Bekijken', name: 'Get-Log', alias: ['gl', 'show', 'cat'], desc: 'Bekijk de log van een dag', usage: 'Get-Log  |  Get-Log gisteren  |  Get-Log 3-11', fn: cmdGetLog },
-  { group: 'Bekijken', name: 'Get-Logs', alias: ['ls', 'dir', 'list'], desc: 'Overzicht van al je logs', fn: cmdGetLogs },
-  { group: 'Bekijken', name: 'Find-Log', alias: ['find', 'zoek', 'search'], desc: 'Zoek in al je logs', usage: 'Find-Log dimmer  |  Find-Log "moving head"', fn: cmdFind },
-  { group: 'Bekijken', name: 'Get-Stats', alias: ['stats', 'whoami'], desc: 'Statistieken, streak en producties', fn: cmdStats },
-  { group: 'Verslag', name: 'Get-Summary', alias: ['sum', 'samenvatting'], desc: 'AI-samenvatting van een periode (voor je verslag)', usage: 'Get-Summary  |  -Week  |  -Days 30', fn: cmdSummary },
-  { group: 'Verslag', name: 'Export-Verslag', alias: ['export'], desc: 'Mooi Word-document (.docx), PDF of Markdown van je logboek', usage: 'Export-Verslag  |  -Format word -All  |  -Week 1  |  -From 1-11 -To 7-11', fn: cmdExport },
-  { group: 'Beheer', name: 'Remove-Log', alias: ['rm', 'del'], desc: 'Verwijder een log', usage: 'Remove-Log 2026-11-03', fn: cmdRemoveLog },
-  { group: 'Beheer', name: 'Backup-Logs', alias: ['backup'], desc: 'Download een backup van alles (.json)', fn: cmdBackup },
-  { group: 'Beheer', name: 'Restore-Logs', alias: ['restore', 'import'], desc: 'Zet een backup terug (ook pc ↔ iPad)', fn: cmdRestore },
-  { group: 'Instellingen', name: 'Set-Config', alias: ['setup', 'config'], desc: 'Naam, opleiding, stageplek, mentor en gratis AI', usage: 'Set-Config  |  Set-Config -Model gemini-2.5-flash', fn: cmdConfig },
-  { group: 'Instellingen', name: 'Set-Theme', alias: ['theme', 'gel', 'kleur'], desc: 'Kies een kleurfilter (gel) voor de hele app', usage: 'Set-Theme  |  Set-Theme amber', fn: cmdTheme },
-  { group: 'Instellingen', name: 'Set-Fx', alias: ['fx', 'effects'], desc: 'Effecten: max / low / off', fn: cmdFx },
-  { group: 'Instellingen', name: 'Test-AI', alias: ['ping'], desc: 'Test de AI-verbinding', fn: cmdTestAI },
-  { group: 'Instellingen', name: 'Clear-Host', alias: ['cls', 'clear'], desc: 'Scherm leegmaken', fn: async () => { out.innerHTML = ''; } },
-  { group: 'Instellingen', name: 'Get-Help', alias: ['help', '?', 'man'], desc: 'Deze lijst', fn: async () => cmdHelp() },
+  { group: 'Loggen', icon: '▶', name: 'new log', alias: ['nl', 'new', 'log', 'nieuw', 'nieuwe log'], flags: ['date'], desc: 'Je log invullen — eerst kies je de datum, dan 10 stappen', usage: 'new log  ·  new log gisteren  ·  new log 3-11', fn: cmdNewLog },
+  { group: 'Loggen', icon: '+', name: 'add taak', alias: ['taak', 'task', 'add task'], text: true, desc: 'Snel een taak toevoegen aan vandaag (ook tussendoor)', usage: 'add taak moving heads gepatcht op universe 2', fn: quickAdd('taken') },
+  { group: 'Loggen', icon: '+', name: 'add fout', alias: ['fout'], text: true, desc: 'Snel iets toevoegen dat fout liep', usage: 'add fout dimmer 23 gaf geen output', fn: quickAdd('fouten') },
+  { group: 'Loggen', icon: '+', name: 'add geleerd', alias: ['geleerd', 'les', 'add les', 'add lesson'], text: true, desc: 'Snel iets toevoegen dat je geleerd hebt', fn: quickAdd('geleerd') },
+  { group: 'Loggen', icon: '+', name: 'add morgen', alias: ['morgen', 'todo'], text: true, desc: 'Iets noteren om mee te nemen naar morgen', fn: quickAdd('meenemen') },
+  { group: 'Loggen', icon: '+', name: 'add wie', alias: ['wie'], text: true, desc: 'Iemand toevoegen die er vandaag was', fn: quickAdd('wie') },
+  { group: 'Loggen', icon: '✎', name: 'edit log', alias: ['edit', 'bewerk', 'el', 'bewerk log'], flags: ['date'], desc: 'Een log achteraf aanpassen (kies de dag op de kalender)', usage: 'edit log  ·  edit log gisteren', fn: cmdEditLog },
+  { group: 'Bekijken', icon: '◉', name: 'get log', alias: ['gl', 'show', 'cat', 'toon', 'bekijk'], flags: ['date'], desc: 'Bekijk de log van een dag', usage: 'get log  ·  get log gisteren  ·  get log 3-11', fn: cmdGetLog },
+  { group: 'Bekijken', icon: '▤', name: 'get logs', alias: ['ls', 'dir', 'list', 'logs', 'alle logs'], desc: 'Overzicht van al je logs (met uren)', fn: cmdGetLogs },
+  { group: 'Bekijken', icon: '⌕', name: 'find log', alias: ['find', 'zoek', 'search'], text: true, desc: 'Zoek in al je logs', usage: 'zoek dimmer  ·  zoek moving head', fn: cmdFind },
+  { group: 'Bekijken', icon: '◆', name: 'get stats', alias: ['stats', 'whoami', 'statistieken'], desc: 'Statistieken, streak, uren en producties', fn: cmdStats },
+  { group: 'Verslag', icon: '🤖', name: 'get summary', alias: ['sum', 'summary', 'samenvatting'], flags: ['week', 'days', 'from', 'to', 'all', 'month', 'prev'], desc: 'AI-samenvatting van een periode (voor je verslag)', usage: 'samenvatting  ·  samenvatting vorige week  ·  samenvatting 30 dagen', fn: cmdSummary },
+  { group: 'Verslag', icon: '⇩', name: 'export verslag', alias: ['export', 'exporteer'], formats: true, flags: ['format', 'week', 'days', 'from', 'to', 'all', 'month', 'prev'], desc: 'Mooi Word-document (.docx), PDF of Markdown', usage: 'export  ·  export word alles  ·  export pdf vorige week  ·  export word van 1-11 tot 7-11', fn: cmdExport },
+  { group: 'Beheer', icon: '✖', name: 'remove log', alias: ['rm', 'del', 'verwijder'], flags: ['date'], desc: 'Een log verwijderen', usage: 'remove log  ·  remove log 3-11', fn: cmdRemoveLog },
+  { group: 'Beheer', icon: '💾', name: 'backup logs', alias: ['backup'], desc: 'Download een backup van alles (.json)', fn: cmdBackup },
+  { group: 'Beheer', icon: '↺', name: 'restore logs', alias: ['restore', 'import', 'herstel'], desc: 'Zet een backup terug (ook pc ↔ iPad)', fn: cmdRestore },
+  { group: 'Instellingen', icon: '⚙', name: 'set config', alias: ['setup', 'config', 'instellingen'], flags: ['model'], desc: 'Naam, opleiding, stageplek, mentor en gratis AI', usage: 'setup  ·  set config model gemini-2.5-flash', fn: cmdConfig },
+  { group: 'Instellingen', icon: '🎨', name: 'set theme', alias: ['theme', 'gel', 'kleur', 'thema'], desc: 'Kies een kleurfilter (gel) voor de hele app', usage: 'gel  ·  gel amber', fn: cmdTheme },
+  { group: 'Instellingen', icon: '✨', name: 'set fx', alias: ['fx', 'effects', 'effecten'], desc: 'Effecten: max / low / off', usage: 'fx low', fn: cmdFx },
+  { group: 'Instellingen', icon: '📡', name: 'test ai', alias: ['ping'], desc: 'Test de AI-verbinding', fn: cmdTestAI },
+  { group: 'Instellingen', icon: '⌫', name: 'clear', alias: ['cls', 'clear host'], desc: 'Scherm leegmaken', fn: async () => { out.innerHTML = ''; } },
+  { group: 'Instellingen', icon: '?', name: 'help', alias: ['?', 'man', 'get help', 'hulp'], desc: 'Alle commando\'s', fn: async () => cmdHelp() },
 ];
 
 // ── opstarten ─────────────────────────────────────────────
@@ -1363,14 +1525,15 @@ async function boot() {
     ['ok', `Initializing StageLog kernel v${VERSION}`],
     ['ok', 'Patching DMX universe 1 ............. 512 ch'],
     ['ok', `Loading cue stack ................... ${logCount()} cues`],
-    ['ok', 'Warming up lamps .................... 100%'],
+    ['ok', 'Warming up lamps ...', 'warm'],
     ['ok', 'Haze machine ........................ ON'],
-    aiReady() ? ['ok', `AI uplink: ${settings.provider} → ${settings.models[settings.provider]}`] : ['wn', 'AI uplink: niet geconfigureerd (Set-Config)'],
+    aiReady() ? ['ok', `AI uplink: ${settings.provider} → ${settings.models[settings.provider]}`] : ['wn', 'AI uplink: niet geconfigureerd (set config)'],
   ];
   const truss = [...document.querySelectorAll('.truss i')];
   for (let i = 0; i < steps.length; i++) {
-    const [t, msg] = steps[i];
-    print(`<span class="tag ${t}">[${t === 'ok' ? ' OK ' : 'WARN'}]</span> <span class="dim">${esc(msg)}</span>`, 'boot');
+    const [t, msg, kind] = steps[i];
+    print(`<span class="tag ${t}">[${t === 'ok' ? ' OK ' : 'WARN'}]</span> <span class="dim">${esc(msg)}</span>${kind === 'warm' ? '<span class="warm"><i></i></span><span class="dim">100%</span>' : ''}`, 'boot');
+    if (kind === 'warm' && !fast) await sleep(900);
     if (!fast) await sleep(120 + Math.random() * 130);
     if (i === 3) stage.classList.add('on'); // lampen aan!
   }
@@ -1381,9 +1544,9 @@ async function boot() {
 
   const name = settings.name ? `, ${esc(settings.name)}` : '';
   print(`Welkom terug${name}. <span class="dim">Vandaag is</span> <b>${esc(longDate(today()))}</b>.`);
-  if (logs[today()]) print(`<span class="ok">✔ Je log van vandaag staat er al.</span> <span class="dim">Bekijk met</span> <span class="info">Get-Log</span><span class="dim">, aanvullen met</span> <span class="info">New-Log</span>`);
+  if (logs[today()]) print(`<span class="ok">✔ Je log van vandaag staat er al.</span> <span class="dim">Bekijk met</span> <span class="info">get log</span><span class="dim">, aanvullen met</span> <span class="info">new log</span>`);
   else {
-    print(`<span class="warn">● Nog geen log voor vandaag.</span> <span class="dim">Typ</span> <span class="info">New-Log</span> <span class="dim">of tik op ▶ New-Log. Alle commando's:</span> <span class="info">help</span>`);
+    print(`<span class="warn">● Nog geen log voor vandaag.</span> <span class="dim">Typ</span> <span class="info">new log</span> <span class="dim">of tik op ▶ new log. Alle commando's:</span> <span class="info">help</span>`);
     const carry = carryOverHtml(today());
     if (carry) print(carry);
   }
@@ -1394,21 +1557,21 @@ async function boot() {
     print('');
     say('Eerste keer hier? Even instellen…', 'info');
     await sleep(fast ? 0 : 400);
-    input.value = 'Set-Config';
+    input.value = 'set config';
     submit();
   }
 }
 
 function bootHints() {
   const draft = load(LS_DRAFT, null);
-  if (draft?.raw) print(`<span class="info">💾 Je hebt een onafgewerkte log van ${esc(longDate(draft.date))}.</span> <span class="dim">Ga verder met</span> <span class="info">New-Log ${draft.date}</span>`);
+  if (draft?.raw) print(`<span class="info">💾 Je hebt een onafgewerkte log van ${esc(longDate(draft.date))}.</span> <span class="dim">Ga verder met</span> <span class="info">new log ${draft.date}</span>`);
   // laatste werkdag zonder log (alleen als je de week ervoor wel logde)
   let d = addDays(today(), -1);
   while ([0, 6].includes(fromIso(d).getDay())) d = addDays(d, -1);
   const recent = sortedDates().some(x => x >= addDays(d, -7) && x < d);
-  if (!logs[d] && recent && draft?.date !== d) print(`<span class="warn">● Geen log voor ${esc(longDate(d))}.</span> <span class="dim">Was je op stage? →</span> <span class="info">New-Log ${d}</span>`);
+  if (!logs[d] && recent && draft?.date !== d) print(`<span class="warn">● Geen log voor ${esc(longDate(d))}.</span> <span class="dim">Was je op stage? →</span> <span class="info">new log ${d}</span>`);
   const days = settings.lastBackup ? (Date.now() - settings.lastBackup) / 864e5 : Infinity;
-  if (logCount() >= 3 && days > 7) print(`<span class="dim">💾 Tip: je laatste backup is ${settings.lastBackup ? Math.floor(days) + ' dagen' : 'nog nooit gemaakt'}. Typ</span> <span class="info">Backup-Logs</span> <span class="dim">en bewaar het bestand in iCloud/OneDrive.</span>`);
+  if (logCount() >= 3 && days > 7) print(`<span class="dim">💾 Tip: je laatste backup is ${settings.lastBackup ? Math.floor(days) + ' dagen' : 'nog nooit gemaakt'}. Typ</span> <span class="info">backup logs</span> <span class="dim">en bewaar het bestand in iCloud/OneDrive.</span>`);
 }
 
 // vraag de browser om je logs nooit automatisch op te ruimen
