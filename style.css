@@ -302,3 +302,10 @@ a { color: var(--a1); }
   #app, #stage, #go { display: none !important; }
   #print-area { display: block; }
 }
+
+/* ── v3 extra's ──────────────────────────────────────────── */
+.hit { background: var(--a4); color: var(--ink); border-radius: 2px; padding: 0 2px; font-weight: 700; }
+.row-link { cursor: pointer; margin-top: .4em; }
+.row-link:hover { background: color-mix(in srgb, var(--a1) 8%, transparent); }
+#quickbar .qb-export { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, var(--line)); }
+#quickbar button[hidden] { display: none; }

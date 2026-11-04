@@ -1,7 +1,7 @@
 {
   "name": "StageLog Terminal",
   "short_name": "StageLog",
-  "description": "Dagelijks stagelogboek in PowerShell-stijl, met gratis AI.",
+  "description": "Stagelogboek podiumtechnieken (licht) in terminal-stijl, met Word-export en gratis AI.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

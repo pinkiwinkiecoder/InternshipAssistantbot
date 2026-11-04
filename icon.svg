@@ -1,13 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22d3ee"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#e056fd"/>
-    </linearGradient>
-    <radialGradient id="bg" cx=".75" cy="0" r="1.1">
-      <stop offset="0" stop-color="#1b1745"/><stop offset=".6" stop-color="#070a12"/>
+    <radialGradient id="bg" cx=".5" cy="0" r="1.2">
+      <stop offset="0" stop-color="#1d1650"/><stop offset=".65" stop-color="#05060d"/>
     </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e056fd" stop-opacity=".95"/><stop offset=".55" stop-color="#8b5cf6" stop-opacity=".45"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="txt" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#e056fd"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="10"/></filter>
   </defs>
-  <rect width="512" height="512" rx="0" fill="url(#bg)"/>
-  <path d="M120 170 L230 256 L120 342" fill="none" stroke="url(#g)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="262" y="318" width="140" height="40" rx="10" fill="#e056fd"/>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <polygon points="236,96 276,96 420,470 92,470" fill="url(#beam)" filter="url(#glow)" opacity=".9"/>
+  <polygon points="240,96 272,96 380,470 132,470" fill="url(#beam)"/>
+  <rect x="186" y="40" width="140" height="64" rx="14" fill="#151a33" stroke="#2c3463" stroke-width="4"/>
+  <circle cx="256" cy="98" r="22" fill="#fff" filter="url(#glow)"/>
+  <circle cx="256" cy="98" r="14" fill="#fff"/>
+  <text x="256" y="420" text-anchor="middle" font-family="Menlo,Consolas,monospace" font-weight="800" font-size="104" fill="url(#txt)">❯_</text>
 </svg>

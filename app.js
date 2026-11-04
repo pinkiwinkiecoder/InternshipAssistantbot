@@ -5,12 +5,18 @@
    eigen Google Gemini- of Groq-sleutel.
    ═══════════════════════════════════════════════════════════ */
 
-const VERSION = '2.0.0';
+const VERSION = '3.0.0';
 const LS_LOGS = 'stagelog.logs';
 const LS_SET = 'stagelog.settings';
 const LS_HIST = 'stagelog.history';
+const LS_DRAFT = 'stagelog.draft';
 
-const DEFAULT_MODELS = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile' };
+const DEFAULT_MODELS = { gemini: 'gemini-flash-latest', groq: 'llama-3.3-70b-versatile' };
+// als een model ooit verdwijnt, probeert de app automatisch het volgende
+const MODEL_FALLBACKS = {
+  gemini: ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-lite-latest'],
+  groq: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'],
+};
 const KEY_URLS = { gemini: 'https://aistudio.google.com/apikey', groq: 'https://console.groq.com/keys' };
 
 // ── de indeling van een logdag ────────────────────────────
@@ -64,7 +70,7 @@ for (const [d, e] of Object.entries(load(LS_LOGS, {}))) logs[d] = normalize(e, d
 
 const storedSet = load(LS_SET, {});
 let settings = {
-  name: '', opleiding: 'Podiumtechnieken — Licht', stageplek: '', mentor: '', provider: 'none', theme: 'congo',
+  name: '', opleiding: 'Podiumtechnieken — Licht', stageplek: '', mentor: '', provider: 'none', theme: 'congo', lastBackup: 0,
   fx: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'low' : 'max',
   ...storedSet,
   keys: { gemini: '', groq: '', ...(storedSet.keys || {}) },
@@ -77,6 +83,7 @@ function saveLogs() {
   if (!save(LS_LOGS, logs)) say('⚠ Opslaan mislukt (opslag vol of geblokkeerd). Maak een backup met Backup-Logs.', 'err');
 }
 const saveSettings = () => save(LS_SET, settings);
+const clearDraft = () => { try { localStorage.removeItem(LS_DRAFT); } catch { /* ok */ } };
 
 // ── datum helpers ─────────────────────────────────────────
 const pad = n => String(n).padStart(2, '0');
@@ -104,6 +111,21 @@ function parseDate(input) {
   return null;
 }
 function valid(s) { const d = fromIso(s); return iso(d) === s ? s : null; }
+
+// werkuren: "09:00-17:30", "9u-17u30", "9.00 tot 17.30", "14:00–01:00" (over middernacht)
+function parseHours(s) {
+  if (!s) return null;
+  const t = String(s).toLowerCase().replace(/(\d)\s*u\s*(\d{2})/g, '$1:$2').replace(/(\d)\s*u\b/g, '$1').replace(/(\d)h(\d{2})/g, '$1:$2');
+  const m = t.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(?:-|–|—|tot|>|t\/m)\s*(\d{1,2})(?:[:.](\d{2}))?/);
+  if (!m) return null;
+  const a = +m[1] * 60 + (+m[2] || 0);
+  let b = +m[3] * 60 + (+m[4] || 0);
+  if (+m[1] > 24 || +m[3] > 24 || (+m[2] || 0) > 59 || (+m[4] || 0) > 59) return null;
+  if (b <= a) b += 1440;
+  const pauze = t.match(/pauze\s*(\d{1,3})/);
+  return b - a - (pauze ? +pauze[1] : 0);
+}
+const fmtMins = m => m == null ? '' : `${Math.floor(m / 60)}u${m % 60 ? pad(m % 60) : ''}`;
 
 function streak() {
   const d = new Date();
@@ -270,7 +292,10 @@ function renderPrompt() {
     caret.textContent = '❯';
     caret.className = '';
   }
-  document.querySelectorAll('#quickbar [data-run]').forEach(b => { b.disabled = busy || mode === 'ask'; });
+  // tijdens een vraag: alleen ⏎ / ^C (en "overslaan") tonen, zodat ze op de iPad altijd in beeld staan
+  document.querySelectorAll('#quickbar [data-run]').forEach(b => { b.hidden = mode === 'ask'; b.disabled = busy; });
+  const skip = document.querySelector('#quickbar .qb-skip');
+  if (skip) skip.hidden = mode !== 'ask';
 }
 setInterval(() => { if (mode === 'cmd') renderPrompt(); }, 30000);
 
@@ -304,7 +329,7 @@ async function askList(label, start = 1) {
   const items = [];
   for (let i = start; ; i++) {
     const v = (await ask('', { hint: `${label} ${i}` })).trim();
-    if (!v) break;
+    if (!v || v === '-') break;
     items.push(v);
   }
   return items;
@@ -392,7 +417,7 @@ function focusInput() {
 }
 
 out.addEventListener('click', e => {
-  if (e.target.closest('a, button, .row, .gel')) return;
+  if (e.target.closest('a, button, .row, .gel, .row-link')) return;
   if (String(getSelection())) return;
   input.focus({ preventScroll: true });
 });
@@ -402,6 +427,7 @@ $('#quickbar').addEventListener('click', e => {
   if (!b) return;
   if (b.dataset.key === 'enter') { submit(); return; }
   if (b.dataset.key === 'cancel') { cancel(); return; }
+  if (b.dataset.key === 'skip') { input.value = '-'; submit(); return; }
   if (b.dataset.run && !busy && mode === 'cmd') { input.value = b.dataset.run; submit(); }
 });
 
@@ -449,7 +475,7 @@ async function run(line) {
   try {
     await c.fn(args);
   } catch (e) {
-    if (e instanceof Cancel) say('Afgebroken.', 'dim');
+    if (e instanceof Cancel) say(c.name === 'New-Log' && load(LS_DRAFT, null) ? 'Afgebroken. 💾 Je concept is bewaard: typ New-Log om verder te gaan.' : 'Afgebroken.', 'dim');
     else if (e instanceof UserError) say('✖ ' + e.message, 'err');
     else { console.error(e); say('✖ Fout: ' + (e.message || e), 'err'); }
   } finally {
@@ -491,11 +517,31 @@ function carryOverHtml(forDate) {
 // ── AI ────────────────────────────────────────────────────
 const aiReady = () => settings.provider !== 'none' && !!settings.keys[settings.provider];
 
-async function aiCall(system, user, { json = true, temperature = 0.4 } = {}) {
+class ModelGone extends Error {}
+
+async function aiCall(system, user, opts = {}) {
+  if (!aiReady()) throw new UserError('AI is niet ingesteld. Typ Set-Config.');
+  const p = settings.provider;
+  const tried = new Set();
+  let model = settings.models[p];
+  for (;;) {
+    tried.add(model);
+    try {
+      const res = await aiRequest(model, system, user, opts);
+      if (settings.models[p] !== model) { settings.models[p] = model; saveSettings(); say(`ℹ AI-model automatisch gewisseld naar ${model}.`, 'dim'); }
+      return res;
+    } catch (e) {
+      if (!(e instanceof ModelGone)) throw e;
+      const next = MODEL_FALLBACKS[p].find(m => !tried.has(m));
+      if (!next) throw new UserError(`Geen werkend AI-model gevonden. Stel er zelf een in met: Set-Config -Model <naam>`);
+      model = next;
+    }
+  }
+}
+
+async function aiRequest(model, system, user, { json = true, temperature = 0.4 } = {}) {
   const p = settings.provider;
   const key = settings.keys[p];
-  const model = settings.models[p];
-  if (!aiReady()) throw new UserError('AI is niet ingesteld. Typ Set-Config.');
   let res, data;
   try {
     if (p === 'gemini') {
@@ -527,7 +573,7 @@ async function aiCall(system, user, { json = true, temperature = 0.4 } = {}) {
     const msg = data?.error?.message || res.statusText;
     if (res.status === 429) throw new UserError('Gratis AI-limiet even bereikt. Wacht een minuutje en probeer opnieuw.');
     if ((res.status === 400 && /api key/i.test(msg)) || res.status === 401 || res.status === 403) throw new UserError('API-sleutel ongeldig. Typ Set-Config om hem opnieuw in te stellen.');
-    if (res.status === 404) throw new UserError(`Model '${model}' niet gevonden. Kies een ander model met: Set-Config -Model <naam>`);
+    if (res.status === 404 || /decommission|not found|does not exist|no longer|not supported/i.test(msg)) throw new ModelGone(model);
     throw new UserError(`AI-fout (${res.status}): ${msg}`);
   }
   const text = p === 'gemini'
@@ -618,30 +664,52 @@ async function cmdNewLog(a) {
   if (!date) throw new UserError('Ongeldige datum. Gebruik bv. 2026-11-03, 3-11, vandaag of gisteren.');
   print(`<span class="section">◆ NEW-LOG</span> <span class="b">${esc(capDate(date))}</span>`);
 
-  let base = normalize({}, date);
-  if (logs[date]) {
-    say('Er bestaat al een log voor deze dag:', 'dim');
-    showLog(logs[date]);
-    const c = (await ask('[A]anvullen, [O]pnieuw beginnen of [S]toppen?', { prose: false })).trim().toLowerCase();
-    if (c.startsWith('a')) base = normalize(JSON.parse(JSON.stringify(logs[date])), date);
-    else if (!c.startsWith('o')) { say('Niets veranderd.', 'dim'); return; }
+  const steps = [...TEXT_FIELDS, ...LIST_FIELDS];
+  let raw = null;
+  let startStep = 0;
+
+  // onafgewerkt concept? (app gesloten, ^C, batterij leeg…)
+  const draft = load(LS_DRAFT, null);
+  if (draft && draft.date === date && draft.raw) {
+    say(`💾 Je was nog bezig met deze log (stap ${Math.min(draft.step + 1, steps.length)}/${steps.length}).`, 'info');
+    const c = (await ask('[V]erder gaan waar je was  /  [O]pnieuw beginnen', { prose: false })).trim().toLowerCase();
+    if (!c.startsWith('o')) { raw = normalize(draft.raw, date); startStep = draft.step; }
+    else clearDraft();
   }
 
-  const carry = carryOverHtml(date);
-  if (carry) print(carry);
+  if (!raw) {
+    raw = normalize({}, date);
+    if (logs[date]) {
+      say('Er bestaat al een log voor deze dag:', 'dim');
+      showLog(logs[date]);
+      const c = (await ask('[A]anvullen, [B]ewerken (Edit-Log), [O]pnieuw beginnen of [S]toppen?', { prose: false })).trim().toLowerCase();
+      if (c.startsWith('a')) raw = normalize(JSON.parse(JSON.stringify(logs[date])), date);
+      else if (c.startsWith('b')) return cmdEditLog({ _: [date], named: {} });
+      else if (!c.startsWith('o')) { say('Niets veranderd.', 'dim'); return; }
+    }
+  }
 
-  const steps = [...TEXT_FIELDS, ...LIST_FIELDS];
-  const raw = normalize(base, date);
-  for (let i = 0; i < steps.length; i++) {
+  if (startStep === 0) { const carry = carryOverHtml(date); if (carry) print(carry); }
+  const saveDraft = step => save(LS_DRAFT, { date, raw, step, t: Date.now() });
+
+  for (let i = startStep; i < steps.length; i++) {
     const f = steps[i];
     if (TEXT_FIELDS.includes(f)) {
-      const prev = base[f.key] || (f.remember ? lastValue(f.key, date) : '');
+      const prev = raw[f.key] || (f.remember ? lastValue(f.key, date) : '');
       stepHeader(i + 1, steps.length, f);
       say(f.q + (prev ? `   (leeg = "${prev}", - = leeg laten)` : '   (leeg = overslaan)'), 'q');
-      const v = (await ask('', { hint: f.label })).trim();
-      raw[f.key] = v === '-' ? '' : (v || prev);
+      let v = (await ask('', { hint: f.label })).trim();
+      v = v === '-' ? '' : (v || prev);
+      while (f.key === 'uren' && v && parseHours(v) == null) {
+        say('⚠ Die uren kan ik niet uitrekenen. Schrijf bv. 09:00-17:30, 9u-17u30 of 14:00-23:30 pauze 30', 'warn');
+        const again = (await ask('', { hint: f.label })).trim();
+        if (!again) break; // leeg = toch zo houden
+        v = again === '-' ? '' : again;
+      }
+      if (f.key === 'uren' && parseHours(v) != null) say(`   = ${fmtMins(parseHours(v))} gewerkt`, 'dim');
+      raw[f.key] = v;
     } else {
-      const have = base[f.key];
+      const have = raw[f.key];
       const extra = have.length ? `<div class="prev">al ingevuld: ${have.map(t => `<span class="item">${esc(t)}</span>`).join(' · ')}</div>` : '';
       stepHeader(i + 1, steps.length, f, extra);
       say(f.q + '   (één per regel, lege regel = volgende stap)', 'q');
@@ -652,6 +720,7 @@ async function cmdNewLog(a) {
       }
       raw[f.key] = [...have, ...items];
     }
+    saveDraft(i + 1);
   }
 
   let final = raw;
@@ -669,10 +738,11 @@ async function cmdNewLog(a) {
   if (final !== raw) choice = (await ask('Opslaan? [J]a  /  [E]igen versie (zonder AI)  /  [N]ee', { prose: false })).trim().toLowerCase() || 'j';
   else if (!(await yes('Opslaan? [J/n]'))) choice = 'n';
 
-  if (choice.startsWith('n')) { say('Niet opgeslagen.', 'warn'); return; }
+  if (choice.startsWith('n')) { say('Niet opgeslagen. Je concept blijft bewaard: typ New-Log om verder te gaan.', 'warn'); return; }
   const chosen = choice.startsWith('e') ? raw : final;
   logs[date] = { ...normalize(chosen, date), raw: pick(raw), updated: Date.now() };
   saveLogs();
+  clearDraft();
   const st = streak();
   fireGo(`CUE ${logCount()} · LOG OPGESLAGEN`);
   say(`✔ Log opgeslagen voor ${longDate(date)}.${st > 1 ? `  🔥 ${st} dagen op rij!` : ''}`, 'ok glow');
@@ -700,6 +770,91 @@ function quickAdd(key) {
   };
 }
 
+async function cmdEditLog(a) {
+  const date = parseDate(a.named.date ?? a._[0]);
+  if (!date) throw new UserError('Ongeldige datum.');
+  if (!logs[date]) throw new UserError(`Geen log voor ${longDate(date)}. Maak er een met: New-Log ${date}`);
+  const e = normalize(JSON.parse(JSON.stringify(logs[date])), date);
+  const fields = [...TEXT_FIELDS, ...LIST_FIELDS];
+  let changed = false;
+  print(`<span class="section">✎ EDIT-LOG</span> <span class="b">${esc(capDate(date))}</span>`);
+  for (;;) {
+    showLog(e);
+    print(fields.map((f, i) => `<span class="info">[${String(i + 1).padStart(2)}]</span> ${f.icon} ${esc(f.short || f.title)} <span class="dim">${TEXT_FIELDS.includes(f) ? esc(e[f.key] || '—') : `(${e[f.key].length} item${e[f.key].length === 1 ? '' : 's'})`}</span>`).join('\n'));
+    const c = (await ask('Welk onderdeel wil je aanpassen? Typ het nummer (leeg = klaar)', { hint: 'onderdeel', prose: false })).trim();
+    if (!c) break;
+    const f = fields[parseInt(c, 10) - 1];
+    if (!f) { say('Kies een nummer uit de lijst.', 'warn'); continue; }
+    if (TEXT_FIELDS.includes(f)) {
+      const pr = ask(`${esc(f.title)} <span class="dim">(leeg = houden, - = wissen)</span>`, { hint: f.label });
+      input.value = e[f.key];
+      const v = (await pr).trim();
+      if (v && v !== e[f.key]) { e[f.key] = v === '-' ? '' : v; changed = true; }
+      if (f.key === 'uren' && e.uren && parseHours(e.uren) == null) say('⚠ Deze uren kan ik niet uitrekenen; ze tellen niet mee in het urenoverzicht.', 'warn');
+    } else if (await editList(e, f)) changed = true;
+  }
+  if (!changed) { say('Niets veranderd.', 'dim'); return; }
+  for (const f of LIST_FIELDS) if (f.required && !e[f.key].length) say(`⚠ "${f.title}" is nu leeg, terwijl het verplicht is.`, 'warn');
+  logs[date] = { ...e, updated: Date.now() };
+  saveLogs();
+  fireGo('LOG BIJGEWERKT');
+  say('✔ Wijzigingen opgeslagen.', 'ok glow');
+}
+
+async function editList(e, f) {
+  let changed = false;
+  for (;;) {
+    const items = e[f.key];
+    print(`<span class="section">${f.icon} ${esc(f.title.toUpperCase())}</span>`);
+    print(items.length ? items.map((t, i) => `<span class="info">${String(i + 1).padStart(2)}.</span> ${highlight(t)}`).join('\n') : '<span class="dim">— leeg —</span>');
+    const c = (await ask('[T] toevoegen · [W 2] nummer 2 wijzigen · [V 1] nummer 1 verwijderen · leeg = terug', { hint: 'actie', prose: false })).trim().toLowerCase();
+    if (!c) return changed;
+    const m = c.match(/^([twv])[a-z]*\s*(\d+)?$/);
+    if (!m) { say('Typ bv. t, w 2 of v 1.', 'warn'); continue; }
+    const n = m[2] ? parseInt(m[2], 10) - 1 : (items.length === 1 ? 0 : -1);
+    if (m[1] === 't') {
+      const add = await askList(f.label, items.length + 1);
+      if (add.length) { items.push(...add); changed = true; }
+    } else if (n < 0 || n >= items.length) {
+      say('Dat nummer bestaat niet. Typ bv. w 2', 'warn');
+    } else if (m[1] === 'w') {
+      const pr = ask('Pas de tekst aan (leeg = houden):', { hint: `${f.label} ${n + 1}` });
+      input.value = items[n];
+      const v = (await pr).trim();
+      if (v && v !== items[n]) { items[n] = v; changed = true; }
+    } else {
+      const [gone] = items.splice(n, 1);
+      changed = true;
+      say(`✔ Verwijderd: ${gone}`, 'ok');
+    }
+  }
+}
+
+const mark = (t, q) => {
+  const i = t.toLowerCase().indexOf(q.toLowerCase());
+  return i < 0 ? highlight(t) : esc(t.slice(0, i)) + `<span class="hit">${esc(t.slice(i, i + q.length))}</span>` + esc(t.slice(i + q.length));
+};
+
+async function cmdFind(a) {
+  let q = a._.join(' ').trim();
+  if (!q) q = (await ask('Waar zoek je naar? (bv. dimmer, Eos, Hamlet, moving head)', { hint: 'zoek' })).trim();
+  if (!q) return;
+  const ql = q.toLowerCase();
+  let hits = 0;
+  for (const d of sortedDates().reverse()) {
+    const e = logs[d];
+    const found = [];
+    for (const f of TEXT_FIELDS) if (e[f.key].toLowerCase().includes(ql)) found.push([f, e[f.key]]);
+    for (const f of LIST_FIELDS) for (const t of e[f.key]) if (t.toLowerCase().includes(ql)) found.push([f, t]);
+    if (!found.length) continue;
+    hits += found.length;
+    const row = print(`<span class="info">${d}</span> <span class="dim">${esc(shortDay(d))}${e.productie ? ' · ' + esc(e.productie) : ''}  ↗</span>`, 'row-link');
+    row.addEventListener('click', () => runFromUi(`Get-Log ${d}`));
+    for (const [f, t] of found) print(`   <span class="dim">${f.icon} ${esc(f.short || f.title)}:</span> ${mark(t, q)}`);
+  }
+  say(hits ? `${hits} resultaat${hits === 1 ? '' : 'en'} voor "${q}". Klik een datum om de hele log te openen.` : `Niets gevonden voor "${q}".`, hits ? 'dim' : 'warn');
+}
+
 async function cmdGetLog(a) {
   const date = parseDate(a.named.date ?? a._[0]);
   if (!date) throw new UserError('Ongeldige datum.');
@@ -717,18 +872,19 @@ async function cmdGetLogs() {
   const wrap = print('', '');
   const t = document.createElement('div');
   t.className = 'table';
-  t.innerHTML = `<span class="th">Datum</span><span class="th wd">Dag</span><span class="th">Productie</span><span class="th num">Taken</span><span class="th num">Fouten</span>`;
+  t.innerHTML = `<span class="th">Datum</span><span class="th wd">Dag</span><span class="th">Productie</span><span class="th num">Uren</span><span class="th num">Taken</span>`;
   for (const d of dates) {
     const e = logs[d];
     const row = document.createElement('div');
     row.className = 'row';
     row.title = 'Klik om te openen';
-    row.innerHTML = `<span class="info">${d}</span><span class="dim wd">${esc(shortDay(d))}</span><span>${esc(e.productie || e.taken[0] || '—')}${e.locatie ? ` <span class="dim">@ ${esc(e.locatie)}</span>` : ''}</span><span class="num">${e.taken.length}</span><span class="num err">${e.fouten.length}</span>`;
+    row.innerHTML = `<span class="info">${d}</span><span class="dim wd">${esc(shortDay(d))}</span><span>${esc(e.productie || e.taken[0] || '—')}${e.locatie ? ` <span class="dim">@ ${esc(e.locatie)}</span>` : ''}</span><span class="num">${fmtMins(parseHours(e.uren)) || '—'}</span><span class="num">${e.taken.length}</span>`;
     row.addEventListener('click', () => runFromUi(`Get-Log ${d}`));
     t.appendChild(row);
   }
   wrap.appendChild(t);
-  say(`${dates.length} log(s). Klik een rij of typ: Get-Log <datum>`, 'dim');
+  const mins = dates.reduce((n, d) => n + (parseHours(logs[d].uren) || 0), 0);
+  say(`${dates.length} log(s)${mins ? ` · ${fmtMins(mins)} gewerkt in totaal` : ''}. Klik een rij of typ: Get-Log <datum>`, 'dim');
   scrollDown();
 }
 
@@ -756,26 +912,34 @@ function rangeFromArgs(a) {
   return dates.filter(d => (!from || d >= from) && (!to || d <= to));
 }
 
+async function aiSummaryText(dates) {
+  const data = dates.map(d => pick(logs[d]));
+  return aiCall(`Je maakt een samenvatting van een stagelogboek, in het Nederlands, in de ik-vorm, voor een stageverslag. ${context()}
+Gebruik exact deze kopjes in HOOFDLETTERS, elk op een eigen regel (gewone tekst, geen markdown-sterretjes of #):
+OVERZICHT
+(2-3 zinnen: aan welke producties en waar ik gewerkt heb)
+BELANGRIJKSTE TAKEN
+(opsomming, elke regel begint met "- ")
+MATERIAAL & TECHNIEK
+(opsomming met "- " van tafels/toestellen/technieken waarmee ik werkte)
+WAT IK GELEERD HEB
+(opsomming met "- ", geformuleerd als competenties: "Ik kan nu …")
+FOUTEN & HOE IK ERMEE OMGING
+(opsomming met "- "; laat dit kopje weg als er geen fouten zijn)
+GROEIPUNTEN
+(opsomming met "- ", gebaseerd op "meenemen")
+Verzin niets dat niet in de logs staat.`, JSON.stringify(data), { json: false });
+}
+
 async function cmdSummary(a) {
   if (!a.named.days && !a.named.week && !a.named.from) a.named.days = '7';
   const dates = rangeFromArgs(a);
   if (!dates.length) throw new UserError('Geen logs in die periode.');
   if (!aiReady()) throw new UserError('Hiervoor heb je AI nodig. Typ Set-Config.');
-  const data = dates.map(d => pick(logs[d]));
   const stop = spinner(`AI vat ${dates.length} dag(en) samen`);
   let text;
-  try {
-    text = await aiCall(`Je maakt een samenvatting van een stagelogboek, in het Nederlands, in de ik-vorm, voor een stageverslag. ${context()}
-Gebruik deze kopjes (gewone tekst, geen markdown-sterretjes of #):
-OVERZICHT — 2-3 zinnen: aan welke producties en waar ik gewerkt heb.
-BELANGRIJKSTE TAKEN — opsomming met "- ".
-MATERIAAL & TECHNIEK — opsomming met "- " van tafels/toestellen/technieken waarmee ik werkte.
-WAT IK GELEERD HEB / WAT IK NU KAN — opsomming met "- ", geformuleerd als competenties.
-FOUTEN & HOE IK ERMEE OMGING — opsomming met "- " (laat weg als er geen zijn).
-GROEIPUNTEN — opsomming met "- ", gebaseerd op "meenemen".
-Verzin niets dat niet in de logs staat.`, JSON.stringify(data), { json: false });
-    stop(`✔ Samenvatting ${dates[0]} → ${dates[dates.length - 1]}`, 'ok');
-  } catch (e) { stop('✖ ' + e.message, 'err'); return; }
+  try { text = await aiSummaryText(dates); stop(`✔ Samenvatting ${dates[0]} → ${dates[dates.length - 1]}`, 'ok'); }
+  catch (e) { stop('✖ ' + e.message, 'err'); return; }
   await typeOut(text);
   const link = print('<a href="#">📋 kopieer samenvatting</a>').querySelector('a');
   link.addEventListener('click', async e => {
@@ -785,94 +949,199 @@ Verzin niets dat niet in de logs staat.`, JSON.stringify(data), { json: false })
 }
 
 // ── export ────────────────────────────────────────────────
-function headerInfo() {
-  return [
-    settings.opleiding && ['Opleiding', settings.opleiding],
-    settings.stageplek && ['Stageplek', settings.stageplek],
-    settings.mentor && ['Stagebegeleider', settings.mentor],
-  ].filter(Boolean);
+// documentkleuren per gel: [hoofdkleur, tweede kleur, fel (voorpagina), donker, licht]
+const DOC_COLORS = {
+  congo:   ['3730A3', '0E7490', '22D3EE', '0B0F22', 'EEF0FB'],
+  amber:   ['B45309', '9A3412', 'FBBF24', '1C1208', 'FDF5E6'],
+  magenta: ['A21CAF', '6D28D9', 'FF4FD8', '1A0820', 'FBEFFC'],
+  peacock: ['0F766E', '0E7490', '2DD4BF', '061A1A', 'E9F7F5'],
+  red:     ['B91C1C', 'C2410C', 'FF4D4D', '1E0707', 'FDEEEE'],
+  uv:      ['6D28D9', 'BE185D', 'A78BFA', '120A24', 'F3EEFD'],
+};
+
+function buildReport(dates, summary = '') {
+  const shortFmt = d => fromIso(d).toLocaleDateString('nl', { weekday: 'short', day: 'numeric', month: 'short' });
+  const days = dates.map(d => {
+    const e = logs[d];
+    const mins = parseHours(e.uren);
+    return { date: d, title: capDate(d), short: shortFmt(d), e, mins, hoursText: fmtMins(mins) };
+  });
+  const prodMap = new Map();
+  for (const d of days) if (d.e.productie) prodMap.set(d.e.productie, (prodMap.get(d.e.productie) || 0) + 1);
+  const matMap = new Map();
+  for (const d of days) for (const m of d.e.materiaal) { const k = m.trim(); matMap.set(k, (matMap.get(k) || 0) + 1); }
+  const totalMins = days.reduce((n, d) => n + (d.mins || 0), 0);
+  const c = DOC_COLORS[settings.theme] || DOC_COLORS.congo;
+  const from = fromIso(dates[0]).toLocaleDateString('nl', { day: 'numeric', month: 'long', year: 'numeric' });
+  const to = fromIso(dates[dates.length - 1]).toLocaleDateString('nl', { day: 'numeric', month: 'long', year: 'numeric' });
+  return {
+    name: settings.name, opleiding: settings.opleiding, stageplek: settings.stageplek, mentor: settings.mentor,
+    periodText: dates.length > 1 ? `${from} – ${to}` : from,
+    generated: new Date().toLocaleDateString('nl', { day: 'numeric', month: 'long', year: 'numeric' }),
+    days, summary,
+    totals: {
+      hoursText: totalMins ? fmtMins(totalMins) : '—',
+      unparsed: days.filter(d => d.e.uren && d.mins == null).length,
+      taken: days.reduce((n, d) => n + d.e.taken.length, 0),
+      geleerd: days.reduce((n, d) => n + d.e.geleerd.length, 0),
+    },
+    producties: [...prodMap.entries()],
+    materiaal: [...matMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k]) => k),
+    textFields: TEXT_FIELDS.map(f => ({ key: f.key, title: f.title })),
+    listFields: LIST_FIELDS.map(f => ({ key: f.key, title: f.short, required: !!f.required })),
+    colors: { p: c[0], s: c[1], bright: c[2], dark: c[3], light: c[4] },
+  };
 }
 
-function buildMarkdown(dates) {
-  const L = [`# Stagelogboek${settings.name ? ' — ' + settings.name : ''}`, ''];
-  for (const [k, v] of headerInfo()) L.push(`**${k}:** ${v}  `);
+function buildMarkdown(rep) {
+  const L = [`# Stagelogboek${rep.name ? ' — ' + rep.name : ''}`, ''];
+  for (const [k, v] of [['Opleiding', rep.opleiding], ['Stageplek', rep.stageplek], ['Stagebegeleider', rep.mentor], ['Periode', rep.periodText], ['Totaal uren', rep.totals.hoursText]]) if (v) L.push(`**${k}:** ${v}  `);
   L.push('');
-  for (const d of dates) {
-    const e = logs[d];
-    L.push('---', '', `## ${capDate(d)}`, '');
-    for (const f of TEXT_FIELDS) if (e[f.key]) L.push(`**${f.title}:** ${e[f.key]}  `);
+  if (rep.summary) L.push('## Samenvatting', '', rep.summary, '');
+  for (const d of rep.days) {
+    L.push('---', '', `## ${d.title}`, '');
+    for (const f of rep.textFields) if (d.e[f.key]) L.push(`**${f.title}:** ${d.e[f.key]}${f.key === 'uren' && d.hoursText ? ` (${d.hoursText})` : ''}  `);
     L.push('');
-    for (const f of LIST_FIELDS) {
-      if (!e[f.key].length && !f.required) continue;
-      L.push(`### ${f.short}`, '');
-      (e[f.key].length ? e[f.key] : ['—']).forEach(t => L.push(`- ${t}`));
+    for (const f of rep.listFields) {
+      if (!d.e[f.key].length && !f.required) continue;
+      L.push(`### ${f.title}`, '');
+      (d.e[f.key].length ? d.e[f.key] : ['—']).forEach(t => L.push(`- ${t}`));
       L.push('');
     }
   }
+  L.push('---', '', '## Urenoverzicht', '', '| Datum | Productie | Werkuren | Duur |', '|---|---|---|---|');
+  for (const d of rep.days) L.push(`| ${d.date} | ${d.e.productie || '—'} | ${d.e.uren || '—'} | ${d.hoursText || '—'} |`);
+  L.push(`| **Totaal** | | | **${rep.totals.hoursText}** |`, '');
   return L.join('\n');
 }
 
-function buildDocHtml(dates) {
-  const fmt = t => esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\b(Probleem|Oorzaak|Oplossing|Geleerd):/g, '<b>$1:</b>');
-  const body = dates.map(d => {
-    const e = logs[d];
-    const meta = TEXT_FIELDS.filter(f => e[f.key]).map(f => `<b>${f.title}:</b> ${esc(e[f.key])}`).join(' &nbsp;·&nbsp; ');
-    const secs = LIST_FIELDS.filter(f => e[f.key].length || f.required)
-      .map(f => `<h3>${f.short}</h3><ul>${(e[f.key].length ? e[f.key] : ['—']).map(t => `<li>${fmt(t)}</li>`).join('')}</ul>`).join('');
-    return `<div class="day"><h2>${esc(capDate(d))}</h2>${meta ? `<p class="meta">${meta}</p>` : ''}${secs}</div>`;
+function buildPrintHtml(rep) {
+  const C = rep.colors;
+  const fmt = t => esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\b(Probleem|Oorzaak|Oplossing|Geleerd|Fout):/g, '<b>$1:</b>');
+  const secColor = { fouten: '#B91C1C', geleerd: '#047857', meenemen: '#B45309', taken: '#' + C.p };
+  const info = [['Stagiair', rep.name], ['Opleiding', rep.opleiding], ['Stageplek', rep.stageplek], ['Stagebegeleider', rep.mentor], ['Periode', rep.periodText], ['Aantal logdagen', rep.days.length], ['Totaal gewerkte uren', rep.totals.hoursText]].filter(([, v]) => v);
+  const sumHtml = rep.summary ? `<section class="pg"><h1>Samenvatting</h1>${rep.summary.split('\n').map(l => l.trim()).filter(Boolean).map(l => /^[-•*]\s/.test(l) ? `<li>${fmt(l.replace(/^[-•*]\s+/, ''))}</li>` : /^[A-ZÀ-Ý &/'-]{4,}$/.test(l) ? `<h2>${esc(l)}</h2>` : `<p>${fmt(l)}</p>`).join('').replace(/(<li>.*?<\/li>)+/g, m => `<ul>${m}</ul>`)}</section>` : '';
+  const daysHtml = rep.days.map((d, i) => {
+    const meta = rep.textFields.filter(f => d.e[f.key]).map(f => `<div><small>${esc(f.title)}</small><b>${esc(d.e[f.key])}</b></div>`).join('');
+    const secs = rep.listFields.filter(f => d.e[f.key].length || f.required).map(f => `<h2 style="color:${secColor[f.key] || '#' + C.s}">■ ${esc(f.title)}</h2><ul>${(d.e[f.key].length ? d.e[f.key] : ['—']).map(t => `<li>${fmt(t)}</li>`).join('')}</ul>`).join('');
+    return `<section class="pg"><h1>${esc(d.title)}</h1><p class="sub"><b>DAG ${i + 1}</b> · ${d.date}${d.hoursText ? ` · ${d.hoursText} gewerkt` : ''}</p>${meta ? `<div class="meta">${meta}</div>` : ''}${secs}</section>`;
   }).join('');
-  const info = headerInfo().map(([k, v]) => `<b>${k}:</b> ${esc(v)}`).join('<br>');
-  return `<h1>Stagelogboek${settings.name ? ' — ' + esc(settings.name) : ''}</h1>
-    ${info ? `<p class="sub">${info}</p>` : ''}
-    <p class="sub">Periode: ${dates[0]} t/m ${dates[dates.length - 1]} · ${dates.length} dag(en)</p>${body}`;
+  return `<style>
+  #print-area{font-family:Calibri,Arial,sans-serif;font-size:10.5pt;color:#1f2333;line-height:1.4}
+  #print-area .pg{page-break-before:always}
+  #print-area b,#print-area strong{color:inherit;font-weight:700}
+  #print-area code{color:#1f2333}
+  #print-area *{text-shadow:none;animation:none}
+  #print-area h1{font-size:20pt;color:#${C.p};border-bottom:2px solid #${C.p};padding-bottom:4pt;margin:0 0 8pt}
+  #print-area h2{font-size:10pt;text-transform:uppercase;letter-spacing:.5pt;margin:12pt 0 3pt;color:#${C.p}}
+  #print-area .sub{color:#6b6f80;font-size:9pt;margin:0 0 8pt}
+  #print-area ul{margin:0 0 0 16pt;padding:0}#print-area li{margin:2pt 0}
+  #print-area code{font-family:Consolas,monospace;background:#f1f1f6;font-size:9.5pt}
+  #print-area .meta{display:flex;gap:6pt;margin:6pt 0}#print-area .meta div{flex:1;background:#${C.light};padding:6pt 8pt}
+  #print-area .meta small{display:block;font-size:7.5pt;font-weight:700;color:#${C.p};text-transform:uppercase;letter-spacing:.5pt}
+  #print-area .cover{background:#${C.dark};color:#fff;padding:36pt 30pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print-area .cover .k{font-family:Consolas,monospace;color:#${C.bright};font-weight:700;font-size:9pt;letter-spacing:1pt}
+  #print-area .cover .t{font-size:36pt;font-weight:800;letter-spacing:1.5pt;margin:24pt 0 6pt}
+  #print-area .cover .o{color:#${C.bright};font-size:16pt;font-weight:700}
+  #print-area .cover .n{font-size:15pt;margin-top:4pt}
+  #print-area table{width:100%;border-collapse:collapse;margin:6pt 0}
+  #print-area td,#print-area th{padding:5pt 7pt;border-bottom:1px solid #dcdce8;text-align:left;font-size:9.5pt}
+  #print-area th{background:#${C.p};color:#fff;text-transform:uppercase;font-size:8pt;letter-spacing:.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print-area .infotbl td:first-child{color:#6b6f80;font-weight:700;font-size:8pt;text-transform:uppercase;width:35%}
+  #print-area .tot td{background:#${C.light};font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print-area .sign{display:flex;gap:30pt;margin-top:14pt}#print-area .sign div{flex:1;color:#6b6f80;line-height:2.6}
+  </style>
+  <div class="cover"><div class="k">❯_ STAGELOG TERMINAL</div><div class="t">STAGELOGBOEK</div><div class="o">${esc(rep.opleiding || '')}</div><div class="n">${esc(rep.name || '')}</div></div>
+  <table class="infotbl">${info.map(([k, v]) => `<tr><td>${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('')}</table>
+  <section class="pg"><h1>Overzicht</h1>
+  ${rep.producties.length ? `<h2>Producties</h2><ul>${rep.producties.map(([p, n]) => `<li><b>${esc(p)}</b> — ${n} dag${n > 1 ? 'en' : ''}</li>`).join('')}</ul>` : ''}
+  ${rep.materiaal.length ? `<h2>Materiaal &amp; techniek</h2><p>${rep.materiaal.map(esc).join(' · ')}</p>` : ''}
+  <h2>Dagoverzicht</h2><table><tr><th>Datum</th><th>Productie</th><th>Locatie</th><th>Uren</th></tr>${rep.days.map(d => `<tr><td>${esc(d.short)}</td><td>${esc(d.e.productie || '—')}</td><td>${esc(d.e.locatie || '—')}</td><td>${esc(d.hoursText || d.e.uren || '—')}</td></tr>`).join('')}</table></section>
+  ${sumHtml}${daysHtml}
+  <section class="pg"><h1>Urenoverzicht</h1><table><tr><th>Datum</th><th>Productie</th><th>Werkuren</th><th>Duur</th></tr>${rep.days.map(d => `<tr><td>${esc(d.short)}</td><td>${esc(d.e.productie || '—')}</td><td>${esc(d.e.uren || '—')}</td><td>${esc(d.hoursText || '—')}</td></tr>`).join('')}<tr class="tot"><td colspan="3">TOTAAL</td><td>${esc(rep.totals.hoursText)}</td></tr></table>
+  <h2>Ondertekening</h2><div class="sign"><div><b>Stagiair</b><br>${esc(rep.name || '')}<br>Datum: ____________<br>Handtekening: ____________</div><div><b>Stagebegeleider</b><br>${esc(rep.mentor || '')}<br>Datum: ____________<br>Handtekening: ____________</div></div></section>`;
 }
-const DOC_CSS = `body,#print-area{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#111;line-height:1.4}
-h1{font-size:20pt;margin:0 0 6pt;color:#4c1d95}.sub{color:#444;margin:0 0 6pt}.meta{color:#333;margin:2pt 0 4pt}
-.day{page-break-inside:avoid;border-top:2px solid #7c3aed;padding-top:8pt;margin-top:14pt}
-h2{font-size:13pt;margin:0 0 4pt;color:#111}h3{font-size:10.5pt;margin:8pt 0 2pt;color:#6d28d9;text-transform:uppercase;letter-spacing:.5pt}
-ul{margin:0 0 0 18pt;padding:0}li{margin:2pt 0}code{font-family:Consolas,monospace;font-size:10pt;background:#f1f1f1}`;
 
-function download(name, content, type) {
-  const blob = new Blob([content], { type });
+async function deliver(blob, filename) {
+  // iPad/iPhone: deelmenu (openen in Word, bewaren in Bestanden, mailen…). Anders: gewone download.
+  const file = new File([blob], filename, { type: blob.type });
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: filename }); return 'shared'; } catch (e) { if (e.name === 'AbortError') return 'aborted'; }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = name;
+  a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return 'downloaded';
+}
+const download = (name, content, type) => deliver(new Blob([content], { type }), name);
+
+async function askPeriod(a) {
+  if (a.named.from || a.named.to || a.named.week || a.named.days || a.named.all) return rangeFromArgs(a);
+  const all = sortedDates();
+  if (!all.length) throw new UserError('Nog geen logs om te exporteren.');
+  print(`Welke periode? <span class="info">[A]</span> alles <span class="dim">(${all.length} dagen)</span> · <span class="info">[W]</span> deze week · <span class="info">[V]</span> vorige week · <span class="info">[M]</span> deze maand · <span class="info">[D]</span> zelf kiezen`, 'q');
+  const c = (await ask('', { hint: 'periode', prose: false })).trim().toLowerCase() || 'a';
+  if (c.startsWith('w')) return rangeFromArgs({ named: { week: '0' } });
+  if (c.startsWith('v')) return rangeFromArgs({ named: { week: '1' } });
+  if (c.startsWith('m')) { const t = today(); return rangeFromArgs({ named: { from: t.slice(0, 8) + '01', to: t } }); }
+  if (c.startsWith('d')) {
+    const from = (await ask('Vanaf welke datum? (bv. 1-11)', { hint: 'van', prose: false })).trim();
+    const to = (await ask('Tot welke datum? (leeg = vandaag)', { hint: 'tot', prose: false })).trim() || 'vandaag';
+    return rangeFromArgs({ named: { from, to } });
+  }
+  return all;
 }
 
 async function cmdExport(a) {
-  const dates = rangeFromArgs(a);
-  if (!dates.length) throw new UserError('Geen logs om te exporteren (in die periode).');
+  const dates = await askPeriod(a);
+  if (!dates.length) throw new UserError('Geen logs in die periode.');
   let fmt = typeof a.named.format === 'string' ? a.named.format.toLowerCase() : '';
   if (!fmt) {
     say(`${dates.length} log(s) klaar om te exporteren (${dates[0]} → ${dates[dates.length - 1]}).`, 'dim');
-    const c = (await ask('Formaat? [P]DF  /  [W]ord  /  [M]arkdown', { prose: false })).trim().toLowerCase();
-    fmt = c.startsWith('w') ? 'word' : c.startsWith('m') ? 'md' : c.startsWith('p') ? 'pdf' : '';
-    if (!fmt) { say('Export geannuleerd.', 'dim'); return; }
+    print(`Formaat? <span class="info">[W]</span> Word .docx <span class="dim">(aanrader — voorpagina, overzicht, urenlijst, handtekeningen)</span> · <span class="info">[P]</span> PDF · <span class="info">[M]</span> Markdown`, 'q');
+    const c = (await ask('', { hint: 'formaat', prose: false })).trim().toLowerCase() || 'w';
+    fmt = c.startsWith('p') ? 'pdf' : c.startsWith('m') ? 'md' : 'word';
   }
-  const stamp = today();
+  let summary = '';
+  if (aiReady() && fmt !== 'md' && !a.named.nosummary) {
+    if (await yes('🤖 Een AI-samenvatting (geleerd, groeipunten…) toevoegen vooraan? [j/N]', false)) {
+      const stop = spinner('AI schrijft de samenvatting');
+      try { summary = await aiSummaryText(dates); stop('✔ Samenvatting klaar.', 'ok'); }
+      catch (e) { stop('✖ ' + e.message + ' (export gaat door zonder samenvatting)', 'err'); }
+    }
+  }
+  const rep = buildReport(dates, summary);
+  const base = `stagelogboek${settings.name ? '-' + settings.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : ''}-${dates[0]}${dates.length > 1 ? '_' + dates[dates.length - 1] : ''}`;
+  let how;
   if (fmt === 'md' || fmt === 'markdown') {
-    download(`stagelogboek-${stamp}.md`, buildMarkdown(dates), 'text/markdown;charset=utf-8');
-    say('✔ Markdown gedownload.', 'ok');
-  } else if (['word', 'doc', 'docx'].includes(fmt)) {
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>Stagelogboek</title><style>${DOC_CSS}</style></head><body>${buildDocHtml(dates)}</body></html>`;
-    download(`stagelogboek-${stamp}.doc`, '﻿' + html, 'application/msword');
-    say('✔ Word-bestand gedownload (opent in Word, Pages en Google Docs).', 'ok');
+    how = await download(`${base}.md`, buildMarkdown(rep), 'text/markdown;charset=utf-8');
+  } else if (['word', 'doc', 'docx', 'w'].includes(fmt)) {
+    const stop = spinner('Word-document opbouwen');
+    const blob = window.StageDocx.build(rep);
+    stop(`✔ Word-document klaar (${Math.max(1, Math.round(blob.size / 1024))} kB): voorpagina, overzicht, ${rep.days.length} dag(en), urenoverzicht.`, 'ok');
+    how = await deliver(blob, `${base}.docx`);
   } else if (fmt === 'pdf') {
-    $('#print-area').innerHTML = `<style>${DOC_CSS}</style>${buildDocHtml(dates)}`;
-    say('Printvenster opent… kies "Opslaan als PDF" (iPad: Delen → Opslaan in Bestanden).', 'info');
-    await sleep(200);
+    $('#print-area').innerHTML = buildPrintHtml(rep);
+    say('Printvenster opent… kies "Opslaan als PDF" (iPad: tik op Delen → Opslaan in Bestanden).', 'info');
+    await sleep(250);
     window.print();
-  } else throw new UserError('Onbekend formaat. Kies pdf, word of md.');
+    how = 'printed';
+  } else throw new UserError('Onbekend formaat. Kies word, pdf of md.');
+  if (how === 'aborted') { say('Delen geannuleerd.', 'dim'); return; }
+  if (how === 'downloaded') say('✔ Gedownload. Je vindt het bij je Downloads (iPad: app Bestanden → Downloads).', 'ok');
+  if (how === 'shared') say('✔ Gedeeld.', 'ok');
   fireGo('EXPORT');
 }
 
 async function cmdBackup() {
   const { keys, ...safeSettings } = settings;
   const data = { app: 'StageLog', version: VERSION, exported: new Date().toISOString(), settings: safeSettings, logs };
-  download(`stagelog-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
-  say(`✔ Backup van ${logCount()} log(s) gedownload. Bewaar dit bestand goed (bv. in iCloud/OneDrive).`, 'ok');
+  const how = await download(`stagelog-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
+  if (how === 'aborted') { say('Backup geannuleerd.', 'dim'); return; }
+  settings.lastBackup = Date.now(); saveSettings();
+  say(`✔ Backup van ${logCount()} log(s) gemaakt. Bewaar dit bestand goed (bv. in iCloud Drive of OneDrive).`, 'ok');
   say('Je API-sleutel zit er bewust NIET in.', 'dim');
 }
 
@@ -893,8 +1162,10 @@ function cmdRestore() {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !e || typeof e !== 'object') continue;
           logs[d] = normalize(e, d); n++;
         }
-        for (const k of ['name', 'opleiding', 'stageplek', 'mentor']) if (data.settings?.[k] && !settings[k]) settings[k] = data.settings[k];
-        saveSettings(); saveLogs();
+        for (const k of ['name', 'opleiding', 'stageplek', 'mentor', 'provider', 'theme', 'fx']) if (data.settings?.[k]) settings[k] = data.settings[k];
+        if (data.settings?.models) settings.models = { ...settings.models, ...data.settings.models };
+        if (settings.provider !== 'none' && !settings.keys[settings.provider]) say(`ℹ Plak je ${settings.provider}-sleutel opnieuw in met Set-Config (sleutels zitten niet in backups).`, 'dim');
+        saveSettings(); saveLogs(); applyLook(); renderPrompt();
         say(`✔ ${n} log(s) teruggezet. Totaal nu: ${logCount()}.`, 'ok');
       } catch { say('✖ Dit bestand kon niet gelezen worden.', 'err'); }
       resolve();
@@ -1017,6 +1288,8 @@ ${lbl('Stagiair')} <b>${esc(settings.name || '—')}</b>  <span class="dim">${es
 ${lbl('Stageplek')} ${esc(settings.stageplek || '—')}
 ${lbl('Logs')} <b>${dates.length}</b>${dates.length ? ` <span class="dim">(${dates[0]} → ${dates[dates.length - 1]})</span>` : ''}
 ${lbl('Streak')} <b>${st ? '🔥 ' + st : '0'}</b> <span class="dim">dagen op rij</span>
+${lbl('Gewerkte uren')} <b>${fmtMins(dates.reduce((n, d) => n + (parseHours(logs[d].uren) || 0), 0)) || '—'}</b>
+${lbl('Laatste backup')} ${settings.lastBackup ? esc(new Date(settings.lastBackup).toLocaleDateString('nl')) : '<span class="warn">nog nooit</span> <span class="dim">(Backup-Logs)</span>'}
 ${LIST_FIELDS.map(f => `${lbl(f.icon + ' ' + f.short)} ${bar(counts[f.key])} <b>${counts[f.key]}</b>`).join('\n')}
 ${lbl('Producties')} ${topProds.length ? topProds.map(([p, n]) => `${esc(p)} <span class="dim">(${n}d)</span>`).join(' · ') : '—'}
 ${lbl('AI')} ${aiReady() ? `<span class="ok">● ${settings.provider}</span> <span class="dim">${esc(settings.models[settings.provider])}</span>` : '<span class="warn">○ uit</span> <span class="dim">(Set-Config)</span>'}
@@ -1042,11 +1315,13 @@ const COMMANDS = [
   { group: 'Loggen', name: 'Add-Geleerd', alias: ['geleerd', 'les', 'add-lesson'], desc: 'Snel iets toevoegen dat je geleerd hebt', fn: quickAdd('geleerd') },
   { group: 'Loggen', name: 'Add-Morgen', alias: ['morgen', 'todo'], desc: 'Iets noteren om mee te nemen naar morgen', fn: quickAdd('meenemen') },
   { group: 'Loggen', name: 'Add-Wie', alias: ['wie'], desc: 'Iemand toevoegen die er vandaag was', fn: quickAdd('wie') },
+  { group: 'Loggen', name: 'Edit-Log', alias: ['edit', 'bewerk', 'el'], desc: 'Een log achteraf aanpassen: items wijzigen, toevoegen of verwijderen', usage: 'Edit-Log  |  Edit-Log gisteren  |  Edit-Log 3-11', fn: cmdEditLog },
   { group: 'Bekijken', name: 'Get-Log', alias: ['gl', 'show', 'cat'], desc: 'Bekijk de log van een dag', usage: 'Get-Log  |  Get-Log gisteren  |  Get-Log 3-11', fn: cmdGetLog },
   { group: 'Bekijken', name: 'Get-Logs', alias: ['ls', 'dir', 'list'], desc: 'Overzicht van al je logs', fn: cmdGetLogs },
+  { group: 'Bekijken', name: 'Find-Log', alias: ['find', 'zoek', 'search'], desc: 'Zoek in al je logs', usage: 'Find-Log dimmer  |  Find-Log "moving head"', fn: cmdFind },
   { group: 'Bekijken', name: 'Get-Stats', alias: ['stats', 'whoami'], desc: 'Statistieken, streak en producties', fn: cmdStats },
   { group: 'Verslag', name: 'Get-Summary', alias: ['sum', 'samenvatting'], desc: 'AI-samenvatting van een periode (voor je verslag)', usage: 'Get-Summary  |  -Week  |  -Days 30', fn: cmdSummary },
-  { group: 'Verslag', name: 'Export-Verslag', alias: ['export'], desc: 'Exporteer naar PDF, Word of Markdown', usage: 'Export-Verslag -Format pdf  |  -Week 1  |  -From 1-11 -To 7-11', fn: cmdExport },
+  { group: 'Verslag', name: 'Export-Verslag', alias: ['export'], desc: 'Mooi Word-document (.docx), PDF of Markdown van je logboek', usage: 'Export-Verslag  |  -Format word -All  |  -Week 1  |  -From 1-11 -To 7-11', fn: cmdExport },
   { group: 'Beheer', name: 'Remove-Log', alias: ['rm', 'del'], desc: 'Verwijder een log', usage: 'Remove-Log 2026-11-03', fn: cmdRemoveLog },
   { group: 'Beheer', name: 'Backup-Logs', alias: ['backup'], desc: 'Download een backup van alles (.json)', fn: cmdBackup },
   { group: 'Beheer', name: 'Restore-Logs', alias: ['restore', 'import'], desc: 'Zet een backup terug (ook pc ↔ iPad)', fn: cmdRestore },
@@ -1113,6 +1388,8 @@ async function boot() {
     if (carry) print(carry);
   }
 
+  bootHints();
+
   if (!settings.name) {
     print('');
     say('Eerste keer hier? Even instellen…', 'info');
@@ -1121,6 +1398,21 @@ async function boot() {
     submit();
   }
 }
+
+function bootHints() {
+  const draft = load(LS_DRAFT, null);
+  if (draft?.raw) print(`<span class="info">💾 Je hebt een onafgewerkte log van ${esc(longDate(draft.date))}.</span> <span class="dim">Ga verder met</span> <span class="info">New-Log ${draft.date}</span>`);
+  // laatste werkdag zonder log (alleen als je de week ervoor wel logde)
+  let d = addDays(today(), -1);
+  while ([0, 6].includes(fromIso(d).getDay())) d = addDays(d, -1);
+  const recent = sortedDates().some(x => x >= addDays(d, -7) && x < d);
+  if (!logs[d] && recent && draft?.date !== d) print(`<span class="warn">● Geen log voor ${esc(longDate(d))}.</span> <span class="dim">Was je op stage? →</span> <span class="info">New-Log ${d}</span>`);
+  const days = settings.lastBackup ? (Date.now() - settings.lastBackup) / 864e5 : Infinity;
+  if (logCount() >= 3 && days > 7) print(`<span class="dim">💾 Tip: je laatste backup is ${settings.lastBackup ? Math.floor(days) + ' dagen' : 'nog nooit gemaakt'}. Typ</span> <span class="info">Backup-Logs</span> <span class="dim">en bewaar het bestand in iCloud/OneDrive.</span>`);
+}
+
+// vraag de browser om je logs nooit automatisch op te ruimen
+try { navigator.storage?.persist?.(); } catch { /* ok */ }
 
 document.addEventListener('keydown', e => {
   if (document.activeElement !== input && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1) input.focus();
