@@ -62,11 +62,14 @@
         <button data-run="add fout">+ Fout</button>
         <button data-run="add geleerd">+ Geleerd</button>
         <button data-run="add morgen">+ Morgen</button>
+        <button data-run="agenda" class="qb-agenda">📅 Agenda</button>
+        <button data-run="foto">📷 Foto</button>
         <button data-run="get log">Vandaag</button>
         <button data-run="edit log">✎ Bewerk</button>
         <button data-run="get logs">Alle logs</button>
         <button data-run="find log">⌕ Zoek</button>
         <button data-run="export verslag" class="qb-export">⇩ Word</button>
+        <button data-run="kopieer">📋 Kopieer</button>
         <button data-run="set theme">Gel 🎨</button>
         <button data-run="help">Help</button>
         <button data-key="enter" class="qb-key">⏎ Enter / volgende</button>
@@ -76,9 +79,13 @@
     </footer>
   </div>
 
+  <div id="agenda" class="overlay" hidden></div>
+  <div id="lightbox" class="overlay" hidden></div>
   <div id="print-area"></div>
   <input type="file" id="file" accept="application/json,.json" hidden>
+  <input type="file" id="photo-file" accept="image/*" multiple hidden>
   <script src="docx.js"></script>
   <script src="app.js"></script>
+  <script src="extras.js"></script>
 </body>
 </html>

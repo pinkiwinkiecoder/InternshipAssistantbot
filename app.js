@@ -5,7 +5,7 @@
    eigen Google Gemini- of Groq-sleutel.
    ═══════════════════════════════════════════════════════════ */
 
-const VERSION = '4.0.0';
+const VERSION = '5.0.0';
 const LS_LOGS = 'stagelog.logs';
 const LS_SET = 'stagelog.settings';
 const LS_HIST = 'stagelog.history';
@@ -60,6 +60,7 @@ function normalize(e, date) {
   // oude v1-logs omzetten
   if (e?.productief) n.taken = [...n.taken, ...strArr(e.productief)];
   if (e?.leermomenten) n.fouten = [...n.fouten, ...strArr(e.leermomenten)];
+  n.fotos = strArr(e?.fotos);
   n.updated = e?.updated || Date.now();
   if (e?.raw) n.raw = e.raw;
   return n;
@@ -457,7 +458,7 @@ function focusInput() {
 }
 
 out.addEventListener('click', e => {
-  if (e.target.closest('a, button, .row, .gel, .row-link, .help-card, .datepick')) return;
+  if (e.target.closest('a, button, .row, .gel, .row-link, .help-card, .datepick, .copybox, .lc-photos')) return;
   if (String(getSelection())) return;
   input.focus({ preventScroll: true });
 });
@@ -579,9 +580,10 @@ function logCardHtml(e) {
     <div class="lc-head"><span class="lc-date">📅 ${esc(capDate(e.date))}</span><span class="lc-id">${e.date}</span></div>
     ${chips ? `<div class="lc-meta">${chips}</div>` : ''}
     <div class="lc-grid">${LIST_FIELDS.map(sec).join('')}</div>
+    ${e.fotos?.length ? `<div class="lc-title t-foto">📷 FOTO'S</div><div class="lc-photos" data-date="${e.date}"></div>` : ''}
   </div>`;
 }
-const showLog = entry => print(logCardHtml(entry));
+const showLog = entry => { const el = print(logCardHtml(entry)); if (entry.fotos?.length && window.hydratePhotos) hydratePhotos(el); return el; };
 
 function carryOverHtml(forDate) {
   const pd = prevLogDate(forDate);
@@ -1044,6 +1046,7 @@ async function cmdRemoveLog(a) {
   showLog(logs[date]);
   const c = (await ask('Typ <b>verwijder</b> om deze log definitief te wissen:', { prose: false })).trim().toLowerCase();
   if (c !== 'verwijder') { say('Niet verwijderd.', 'dim'); return; }
+  if (window.deletePhotosOf) await deletePhotosOf(date);
   delete logs[date]; saveLogs();
   say('✔ Log verwijderd.', 'ok');
 }
@@ -1159,6 +1162,7 @@ function buildMarkdown(rep) {
       (d.e[f.key].length ? d.e[f.key] : ['—']).forEach(t => L.push(`- ${t}`));
       L.push('');
     }
+    if (d.e.fotos?.length) L.push(`_📷 ${d.e.fotos.length} foto('s) — zie de Word- of PDF-export_`, '');
   }
   L.push('---', '', '## Urenoverzicht', '', '| Datum | Productie | Werkuren | Duur |', '|---|---|---|---|');
   for (const d of rep.days) L.push(`| ${d.date} | ${d.e.productie || '—'} | ${d.e.uren || '—'} | ${d.hoursText || '—'} |`);
@@ -1175,7 +1179,8 @@ function buildPrintHtml(rep) {
   const daysHtml = rep.days.map((d, i) => {
     const meta = rep.textFields.filter(f => d.e[f.key]).map(f => `<div><small>${esc(f.title)}</small><b>${esc(d.e[f.key])}</b></div>`).join('');
     const secs = rep.listFields.filter(f => d.e[f.key].length || f.required).map(f => `<h2 style="color:${secColor[f.key] || '#' + C.s}">■ ${esc(f.title)}</h2><ul>${(d.e[f.key].length ? d.e[f.key] : ['—']).map(t => `<li>${fmt(t)}</li>`).join('')}</ul>`).join('');
-    return `<section class="pg"><h1>${esc(d.title)}</h1><p class="sub"><b>DAG ${i + 1}</b> · ${d.date}${d.hoursText ? ` · ${d.hoursText} gewerkt` : ''}</p>${meta ? `<div class="meta">${meta}</div>` : ''}${secs}</section>`;
+    const phs = (d.photos || []).length ? `<h2 style="color:#${C.s}">■ Foto's</h2><div class="phs">${d.photos.map(ph => `<figure><img src="${ph.data}" alt="">${ph.caption ? `<figcaption>${esc(ph.caption)}</figcaption>` : ''}</figure>`).join('')}</div>` : '';
+    return `<section class="pg"><h1>${esc(d.title)}</h1><p class="sub"><b>DAG ${i + 1}</b> · ${d.date}${d.hoursText ? ` · ${d.hoursText} gewerkt` : ''}</p>${meta ? `<div class="meta">${meta}</div>` : ''}${secs}${phs}</section>`;
   }).join('');
   return `<style>
   #print-area{font-family:Calibri,Arial,sans-serif;font-size:10.5pt;color:#1f2333;line-height:1.4}
@@ -1200,6 +1205,10 @@ function buildPrintHtml(rep) {
   #print-area th{background:#${C.p};color:#fff;text-transform:uppercase;font-size:8pt;letter-spacing:.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   #print-area .infotbl td:first-child{color:#6b6f80;font-weight:700;font-size:8pt;text-transform:uppercase;width:35%}
   #print-area .tot td{background:#${C.light};font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #print-area .phs{display:grid;grid-template-columns:1fr 1fr;gap:8pt;margin-top:4pt}
+  #print-area figure{margin:0;page-break-inside:avoid;text-align:center}
+  #print-area figure img{max-width:100%;max-height:6.5cm;object-fit:contain}
+  #print-area figcaption{font-size:8.5pt;color:#6b6f80;font-style:italic}
   #print-area .sign{display:flex;gap:30pt;margin-top:14pt}#print-area .sign div{flex:1;color:#6b6f80;line-height:2.6}
   </style>
   <div class="cover"><div class="k">❯_ STAGELOG TERMINAL</div><div class="t">STAGELOGBOEK</div><div class="o">${esc(rep.opleiding || '')}</div><div class="n">${esc(rep.name || '')}</div></div>
@@ -1264,6 +1273,7 @@ async function cmdExport(a) {
     }
   }
   const rep = buildReport(dates, summary);
+  if (fmt !== 'md') for (const d of rep.days) d.photos = await photosFor(d.date);
   const base = `stagelogboek${settings.name ? '-' + settings.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : ''}-${dates[0]}${dates.length > 1 ? '_' + dates[dates.length - 1] : ''}`;
   let how;
   if (fmt === 'md' || fmt === 'markdown') {
@@ -1288,11 +1298,13 @@ async function cmdExport(a) {
 
 async function cmdBackup() {
   const { keys, ...safeSettings } = settings;
-  const data = { app: 'StageLog', version: VERSION, exported: new Date().toISOString(), settings: safeSettings, logs };
+  let photos = [];
+  try { photos = await PhotoDB.all(); } catch { /* geen foto's */ }
+  const data = { app: 'StageLog', version: VERSION, exported: new Date().toISOString(), settings: safeSettings, logs, photos };
   const how = await download(`stagelog-backup-${today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   if (how === 'aborted') { say('Backup geannuleerd.', 'dim'); return; }
   settings.lastBackup = Date.now(); saveSettings();
-  say(`✔ Backup van ${logCount()} log(s) gemaakt. Bewaar dit bestand goed (bv. in iCloud Drive of OneDrive).`, 'ok');
+  say(`✔ Backup van ${logCount()} log(s)${photos.length ? ` en ${photos.length} foto('s)` : ''} gemaakt. Bewaar dit bestand goed (bv. in iCloud Drive of OneDrive).`, 'ok');
   say('Je API-sleutel zit er bewust NIET in.', 'dim');
 }
 
@@ -1313,6 +1325,11 @@ function cmdRestore() {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !e || typeof e !== 'object') continue;
           logs[d] = normalize(e, d); n++;
         }
+        let np = 0;
+        for (const ph of Array.isArray(data.photos) ? data.photos : []) {
+          if (ph && ph.id && typeof ph.data === 'string' && ph.data.startsWith('data:image/')) { try { await PhotoDB.put(ph); np++; } catch { /* ok */ } }
+        }
+        if (np) say(`📷 ${np} foto('s) teruggezet.`, 'ok');
         for (const k of ['name', 'opleiding', 'stageplek', 'mentor', 'provider', 'theme', 'fx']) if (data.settings?.[k]) settings[k] = data.settings[k];
         if (data.settings?.models) settings.models = { ...settings.models, ...data.settings.models };
         if (settings.provider !== 'none' && !settings.keys[settings.provider]) say(`ℹ Plak je ${settings.provider}-sleutel opnieuw in met set config (sleutels zitten niet in backups).`, 'dim');
@@ -1442,6 +1459,7 @@ ${lbl('Streak')} <b>${st ? '🔥 ' + st : '0'}</b> <span class="dim">dagen op ri
 ${lbl('Gewerkte uren')} <b>${fmtMins(dates.reduce((n, d) => n + (parseHours(logs[d].uren) || 0), 0)) || '—'}</b>
 ${lbl('Laatste backup')} ${settings.lastBackup ? esc(new Date(settings.lastBackup).toLocaleDateString('nl')) : '<span class="warn">nog nooit</span> <span class="dim">(backup logs)</span>'}
 ${LIST_FIELDS.map(f => `${lbl(f.icon + ' ' + f.short)} ${bar(counts[f.key])} <b>${counts[f.key]}</b>`).join('\n')}
+${lbl('📷 Foto\'s')} <b>${dates.reduce((n, d) => n + (logs[d].fotos?.length || 0), 0)}</b>
 ${lbl('Producties')} ${topProds.length ? topProds.map(([p, n]) => `${esc(p)} <span class="dim">(${n}d)</span>`).join(' · ') : '—'}
 ${lbl('AI')} ${aiReady() ? `<span class="ok">● ${settings.provider}</span> <span class="dim">${esc(settings.models[settings.provider])}</span>` : '<span class="warn">○ uit</span> <span class="dim">(set config)</span>'}
 ${lbl('Gel / effecten')} ${esc(GELS[settings.theme]?.name || '')} · fx ${settings.fx}

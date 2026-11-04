@@ -47,11 +47,14 @@ Typ gewoon met **spaties**, zonder streepjes. Hoofdletters maken niet uit, en de
 | `new log` | Je log invullen: eerst kies je de **datum** op een kalender, daarna 10 stappen (`new log gisteren`, `new log 3 november`) |
 | `add taak …` · `add fout …` · `add geleerd …` · `add morgen …` · `add wie …` | Snel iets toevoegen aan vandaag, ook tussendoor |
 | `edit log` | Een log achteraf aanpassen (kies de dag op de kalender) |
+| `agenda` | Groot agenda-overzicht: per dag wat je gedaan hebt (maand, of `agenda lijst` per week). Tik op een dag voor alles + knoppen |
+| `foto` | Foto's toevoegen aan een dag (camera of fotobibliotheek), met bijschrift. Ze komen mee in Word, PDF en de backup |
 | `get log` · `get logs` | Eén dag of het overzicht van alle dagen bekijken |
 | `zoek dimmer` | Zoeken in al je logs |
 | `stats` | Statistieken, streak, uren en producties |
 | `samenvatting` | AI-samenvatting (`samenvatting vorige week`, `samenvatting 30 dagen`, `samenvatting deze maand`) |
 | `export` | **Word (.docx)**, PDF of Markdown (`export word alles`, `export pdf vorige week`, `export word van 1-11 tot 7-11`) |
+| `kopieer` | Een dag of week als nette tekst naar het klembord, om in **OnStage**, een mail of Teams te plakken (`kopieer gisteren`, `kopieer vorige week`) |
 | `backup` · `restore` | Backup maken en terugzetten (ook om pc ↔ iPad over te zetten) |
 | `setup` | Naam, opleiding, stageplek, mentor en AI |
 | `gel` | Kies een kleurfilter: congo · amber · magenta · peacock · red · uv (`gel amber`) |
@@ -60,6 +63,12 @@ Typ gewoon met **spaties**, zonder streepjes. Hoofdletters maken niet uit, en de
 
 **Datums** mag je schrijven als: `vandaag`, `gisteren`, `vrijdag`, `3-11`, `3 november`, `2026-11-03`.
 **Tab** vult aan · **↑↓** geeft vorige commando's · **Ctrl+C** breekt af · op de iPad staan alle knoppen onderaan.
+
+## OnStage
+
+OnStage heeft geen openbare koppeling (API): je logt er in via je school. Daarom werkt StageLog zo samen met OnStage:
+- **`kopieer`** zet een dag of week als nette tekst op je klembord, die je plakt in het tekstveld in OnStage.
+- **`export`** maakt een Word- of PDF-bestand dat je in OnStage kan **uploaden** als logboek of bijlage.
 
 ## Belangrijk: je gegevens
 
