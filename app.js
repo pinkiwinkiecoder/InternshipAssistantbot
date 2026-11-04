@@ -5,7 +5,7 @@
    eigen Google Gemini- of Groq-sleutel.
    ═══════════════════════════════════════════════════════════ */
 
-const VERSION = '5.0.0';
+const VERSION = '5.1.0';
 const LS_LOGS = 'stagelog.logs';
 const LS_SET = 'stagelog.settings';
 const LS_HIST = 'stagelog.history';
@@ -594,26 +594,58 @@ function carryOverHtml(forDate) {
 // ── AI ────────────────────────────────────────────────────
 const aiReady = () => settings.provider !== 'none' && !!settings.keys[settings.provider];
 
-class ModelGone extends Error {}
+class ModelGone extends Error {}                 // model bestaat niet (meer) → definitief wisselen
+class ModelBusy extends Error {                  // model tijdelijk overbelast of limiet bereikt → even ander model
+  constructor(msg, quota = false) { super(msg); this.quota = quota; }
+}
+
+// Vraag Google welke Gemini-modellen er nu bestaan (max. 1× per 3 dagen), nieuwste Flash eerst.
+async function liveModels(p) {
+  if (p !== 'gemini') return [];
+  const cache = settings.modelCache;
+  if (cache?.list?.length && Date.now() - cache.at < 3 * 864e5) return cache.list;
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(settings.keys.gemini)}`);
+    if (!res.ok) return cache?.list || [];
+    const data = await res.json();
+    const ver = n => parseFloat((n.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+    const list = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => String(m.name || '').replace(/^models\//, ''))
+      .filter(n => /flash/.test(n) && !/image|tts|audio|live|embed|vision|thinking|native|robotics|computer/.test(n))
+      .sort((a, b) => (ver(b) - ver(a)) || (/lite/.test(a) - /lite/.test(b)) || (/preview|exp/.test(a) - /preview|exp/.test(b)) || a.length - b.length)
+      .slice(0, 6);
+    settings.modelCache = { at: Date.now(), list }; saveSettings();
+    return list;
+  } catch { return cache?.list || []; }
+}
 
 async function aiCall(system, user, opts = {}) {
-  if (!aiReady()) throw new UserError('AI is niet ingesteld. Typ set config.');
+  if (!aiReady()) throw new UserError('AI is niet ingesteld. Typ setup.');
   const p = settings.provider;
-  const tried = new Set();
-  let model = settings.models[p];
-  for (;;) {
-    tried.add(model);
-    try {
-      const res = await aiRequest(model, system, user, opts);
-      if (settings.models[p] !== model) { settings.models[p] = model; saveSettings(); say(`ℹ AI-model automatisch gewisseld naar ${model}.`, 'dim'); }
-      return res;
-    } catch (e) {
-      if (!(e instanceof ModelGone)) throw e;
-      const next = MODEL_FALLBACKS[p].find(m => !tried.has(m));
-      if (!next) throw new UserError(`Geen werkend AI-model gevonden. Stel er zelf een in met: set config model <naam>`);
-      model = next;
+  const chain = [...new Set([settings.models[p], ...MODEL_FALLBACKS[p].slice(0, 2), ...(await liveModels(p)), ...MODEL_FALLBACKS[p]])].slice(0, 8);
+  let lastBusy = null;
+  for (const model of chain) {
+    const tries = model === chain[0] ? 2 : 1;
+    for (let attempt = 0; attempt < tries; attempt++) {
+      try {
+        const res = await aiRequest(model, system, user, opts);
+        if (model !== settings.models[p] && !lastBusy) { settings.models[p] = model; saveSettings(); say(`ℹ AI-model automatisch gewisseld naar ${model}.`, 'dim'); }
+        else if (model !== settings.models[p]) say(`ℹ ${settings.models[p]} was druk, dit antwoord komt van ${model}.`, 'dim');
+        return res;
+      } catch (e) {
+        if (e instanceof ModelGone) break;                       // volgend model
+        if (!(e instanceof ModelBusy)) throw e;
+        lastBusy = e;
+        if (e.quota) break;                                      // limiet op dit model: meteen volgend model
+        if (attempt < tries - 1) { say(`⏳ ${model} is even druk, ik probeer het zo opnieuw…`, 'dim'); await sleep(1500); }
+        else if (model !== chain[chain.length - 1]) say(`⏳ ${model} is druk, ik probeer een ander gratis model…`, 'dim');
+      }
     }
   }
+  if (lastBusy?.quota) throw new UserError('Je gratis AI-limiet voor vandaag is bereikt op alle modellen. Morgen werkt het weer — je kan intussen gewoon verder zonder AI.');
+  if (lastBusy) throw new UserError('Alle gratis AI-modellen zijn nu overbelast (dat is tijdelijk). Probeer het over een paar minuten opnieuw met: test ai');
+  throw new UserError('Geen werkend AI-model gevonden. Stel er zelf een in met: set config model <naam>');
 }
 
 async function aiRequest(model, system, user, { json = true, temperature = 0.4 } = {}) {
@@ -648,7 +680,8 @@ async function aiRequest(model, system, user, { json = true, temperature = 0.4 }
   try { data = await res.json(); } catch { data = {}; }
   if (!res.ok) {
     const msg = data?.error?.message || res.statusText;
-    if (res.status === 429) throw new UserError('Gratis AI-limiet even bereikt. Wacht een minuutje en probeer opnieuw.');
+    if (res.status === 429 || /quota|rate limit|resource.?exhausted/i.test(msg)) throw new ModelBusy(msg, true);
+    if ([500, 502, 503, 504].includes(res.status) || /overloaded|high demand|unavailable|try again later/i.test(msg)) throw new ModelBusy(msg);
     if ((res.status === 400 && /api key/i.test(msg)) || res.status === 401 || res.status === 403) throw new UserError('API-sleutel ongeldig. Typ set config om hem opnieuw in te stellen.');
     if (res.status === 404 || /decommission|not found|does not exist|no longer|not supported/i.test(msg)) throw new ModelGone(model);
     throw new UserError(`AI-fout (${res.status}): ${msg}`);

@@ -1,5 +1,5 @@
 // Service worker: maakt de app offline bruikbaar.
-const CACHE = 'stagelog-v5';
+const CACHE = 'stagelog-v5-1';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './docx.js', './extras.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
